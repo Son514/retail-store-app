@@ -1,0 +1,78 @@
+services:
+  ui:
+    build:
+      context: ./src/ui
+    hostname: ui
+    restart: always
+    mem_limit: 512m
+    cap_drop:
+      - ALL
+    environment:
+      - JAVA_OPTS=-XX:MaxRAMPercentage=75.0 -Djava.security.egd=file:/dev/urandom
+      - SERVER_TOMCAT_ACCESSLOG_ENABLED=true
+      - RETAIL_UI_SEARCH_ENABLED=${SEARCH_ENABLED:-false}
+      - RETAIL_UI_ENDPOINTS_CATALOG=http://catalog:8080
+    ports:
+      - "8888:8080"
+    depends_on:
+      catalog:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  catalog:
+    build:
+      context: ./src/catalog
+    hostname: catalog
+    restart: always
+    cap_drop:
+      - all
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - GIN_MODE=release
+      - RETAIL_CATALOG_PERSISTENCE_PROVIDER=mysql
+      - RETAIL_CATALOG_PERSISTENCE_ENDPOINT=catalog-db:3306
+      - RETAIL_CATALOG_PERSISTENCE_DB_NAME=catalogdb
+      - RETAIL_CATALOG_PERSISTENCE_USER=catalog_user
+      - RETAIL_CATALOG_PERSISTENCE_PASSWORD=${DB_PASSWORD}
+    ports:
+      - "8081:8080"
+    depends_on:
+      catalog-db:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+
+  catalog-db:
+    image: mysql:8
+    hostname: catalog-db
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+      - MYSQL_DATABASE=catalogdb
+      - MYSQL_USER=catalog_user
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - catalog-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u catalog_user -p${DB_PASSWORD} --silent || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  catalog-db-data:
