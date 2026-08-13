@@ -1,6 +1,14 @@
+# ------------------------------------------------------------------
+# State bucket
+# ------------------------------------------------------------------
+
 resource "aws_s3_bucket" "terraform_state" {
   bucket = var.bucket_name
 }
+
+# ------------------------------------------------------------------
+# Versioning
+# ------------------------------------------------------------------
 
 resource "aws_s3_bucket_versioning" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
@@ -8,6 +16,10 @@ resource "aws_s3_bucket_versioning" "terraform_state" {
     status = "Enabled"
   }
 }
+
+# ------------------------------------------------------------------
+# Server-side encryption
+# ------------------------------------------------------------------
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
@@ -19,6 +31,10 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" 
   }
 }
 
+# ------------------------------------------------------------------
+# Public access block
+# ------------------------------------------------------------------
+
 resource "aws_s3_bucket_public_access_block" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
 
@@ -27,6 +43,10 @@ resource "aws_s3_bucket_public_access_block" "terraform_state" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
+
+# ------------------------------------------------------------------
+# Lifecycle
+# ------------------------------------------------------------------
 
 resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id

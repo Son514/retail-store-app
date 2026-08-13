@@ -14,3 +14,15 @@ variable "tags" {
   default     = {}
   description = "Additional tags to apply to all resources"
 }
+
+variable "public_subnet_tags" {
+  type        = map(string)
+  default     = {}
+  description = "Additional tags to apply to the public subnets"
+}
+
+variable "private_subnet_tags" {
+  type        = map(string)
+  default     = {}
+  description = "Additional tags to apply to the private subnets"
+}
