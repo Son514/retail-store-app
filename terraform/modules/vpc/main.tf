@@ -3,7 +3,7 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  azs             = slice(data.aws_availability_zones.available.names, 0, 3)
+  azs            = slice(data.aws_availability_zones.available.names, 0, 3)
   public_subnets  = [for k, v in local.azs : cidrsubnet(var.vpc_cidr, 8, k)]
   private_subnets = [for k, v in local.azs : cidrsubnet(var.vpc_cidr, 8, k + 10)]
 }
@@ -26,7 +26,7 @@ resource "aws_subnet" "public" {
   availability_zone       = local.azs[count.index]
   map_public_ip_on_launch = true
 
-  tags = merge(var.tags, var.public_subnet_tags, {
+  tags = merge(var.tags, {
     Name = "${var.environment_name}-public-${count.index + 1}"
   })
 }
@@ -67,7 +67,7 @@ resource "aws_subnet" "private" {
   cidr_block        = local.private_subnets[count.index]
   availability_zone = local.azs[count.index]
 
-  tags = merge(var.tags, var.private_subnet_tags, {
+  tags = merge(var.tags, {
     Name = "${var.environment_name}-private-${count.index + 1}"
   })
 }
