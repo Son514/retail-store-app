@@ -50,5 +50,5 @@ output "oidc_provider_arn" {
 
 output "configure_kubectl" {
   description = "Command to configure kubectl for this cluster"
-  value       = "aws eks --region ${data.aws_region.current.name} update-kubeconfig --name ${aws_eks_cluster.this.name}"
+  value       = "aws eks --region ${data.aws_region.current.region} update-kubeconfig --name ${aws_eks_cluster.this.name}"
 }
