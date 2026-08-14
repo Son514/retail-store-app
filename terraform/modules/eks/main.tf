@@ -3,7 +3,7 @@
 # ------------------------------------------------------------------
 
 resource "aws_iam_role" "cluster" {
-  name = "${var.environment_name}-eks-cluster"
+  name = "eks-cluster"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -23,7 +23,7 @@ resource "aws_iam_role_policy_attachment" "cluster" {
 }
 
 resource "aws_iam_role" "node" {
-  name = "${var.environment_name}-eks-node"
+  name = "eks-node"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -71,7 +71,7 @@ resource "aws_iam_openid_connect_provider" "this" {
 # ------------------------------------------------------------------
 
 resource "aws_eks_cluster" "this" {
-  name                          = var.environment_name
+  name                          = var.cluster_name
   role_arn                      = aws_iam_role.cluster.arn
   version                       = var.cluster_version
   bootstrap_self_managed_addons = false
@@ -116,13 +116,11 @@ resource "aws_eks_access_policy_association" "creator_admin" {
 # ------------------------------------------------------------------
 
 resource "aws_security_group" "node" {
-  name        = "${var.environment_name}-eks-node"
+  name        = "eks-node"
   description = "Security group for the EKS managed node group"
   vpc_id      = var.vpc_id
 
-  tags = merge(var.tags, {
-    Name = "${var.environment_name}-eks-node"
-  })
+  tags = var.tags
 }
 
 resource "aws_security_group_rule" "node_egress" {
@@ -193,7 +191,7 @@ resource "time_sleep" "cluster_wait" {
 
 resource "aws_eks_node_group" "this" {
   cluster_name    = aws_eks_cluster.this.name
-  node_group_name = "${var.environment_name}-managed"
+  node_group_name = "managed"
   node_role_arn   = aws_iam_role.node.arn
   subnet_ids      = var.private_subnet_ids
   instance_types  = var.node_group_instance_types
@@ -210,9 +208,7 @@ resource "aws_eks_node_group" "this" {
     max_unavailable = 1
   }
 
-  tags = merge(var.tags, {
-    Name = "${var.environment_name}-managed"
-  })
+  tags = var.tags
 
   depends_on = [
     aws_iam_role_policy_attachment.node_worker,

@@ -4,10 +4,10 @@ variable "region" {
   description = "AWS region (Singapore)"
 }
 
-variable "environment_name" {
+variable "cluster_name" {
   type        = string
-  default     = "dev"
-  description = "Name of the environment, used in resource names and tags"
+  default     = "retail-store"
+  description = "Name of the EKS cluster; used in the kubernetes.io/cluster subnet tags (must match the eks environment)"
 }
 
 variable "vpc_cidr" {

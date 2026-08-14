@@ -1,6 +1,6 @@
-variable "environment_name" {
+variable "cluster_name" {
   type        = string
-  description = "Name of the environment, used for the cluster name and tags (must match the kubernetes.io/cluster subnet tags)"
+  description = "Name of the EKS cluster (must match the kubernetes.io/cluster subnet tags in the network environment)"
 }
 
 variable "vpc_id" {

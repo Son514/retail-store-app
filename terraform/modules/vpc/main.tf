@@ -22,7 +22,7 @@ resource "aws_vpc" "this" {
   enable_dns_hostnames = true
 
   tags = merge(var.tags, {
-    Name = var.environment_name
+    Name = "retail-store"
   })
 }
 
@@ -39,7 +39,7 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = true
 
   tags = merge(var.tags, var.public_subnet_tags, {
-    Name = "${var.environment_name}-public-${count.index + 1}"
+    Name = "public-${count.index + 1}"
   })
 }
 
@@ -51,7 +51,7 @@ resource "aws_internet_gateway" "this" {
   vpc_id = aws_vpc.this.id
 
   tags = merge(var.tags, {
-    Name = "${var.environment_name}-igw"
+    Name = "igw"
   })
 }
 
@@ -63,7 +63,7 @@ resource "aws_route_table" "public" {
   vpc_id = aws_vpc.this.id
 
   tags = merge(var.tags, {
-    Name = "${var.environment_name}-public"
+    Name = "public"
   })
 }
 
@@ -92,7 +92,7 @@ resource "aws_subnet" "private" {
   availability_zone = local.azs[count.index]
 
   tags = merge(var.tags, var.private_subnet_tags, {
-    Name = "${var.environment_name}-private-${count.index + 1}"
+    Name = "private-${count.index + 1}"
   })
 }
 
@@ -104,7 +104,7 @@ resource "aws_eip" "nat" {
   domain = "vpc"
 
   tags = merge(var.tags, {
-    Name = "${var.environment_name}-nat"
+    Name = "nat"
   })
 }
 
@@ -113,7 +113,7 @@ resource "aws_nat_gateway" "this" {
   subnet_id     = aws_subnet.public[0].id
 
   tags = merge(var.tags, {
-    Name = "${var.environment_name}-nat"
+    Name = "nat"
   })
 }
 
@@ -125,7 +125,7 @@ resource "aws_route_table" "private" {
   vpc_id = aws_vpc.this.id
 
   tags = merge(var.tags, {
-    Name = "${var.environment_name}-private"
+    Name = "private"
   })
 }
 
