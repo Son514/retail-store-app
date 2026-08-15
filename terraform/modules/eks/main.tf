@@ -93,14 +93,10 @@ resource "aws_eks_cluster" "this" {
   depends_on = [aws_iam_role_policy_attachment.cluster]
 }
 
-# Explicit admin access entry for the current IAM principal so that
-# kubectl works (EKS did not bootstrap the creator automatically).
-resource "aws_eks_access_entry" "creator" {
-  cluster_name  = aws_eks_cluster.this.name
-  principal_arn = data.aws_caller_identity.current.arn
-  type          = "STANDARD"
-}
-
+# Attach the admin cluster access policy to the cluster creator so kubectl
+# works. The access entry itself is auto-created by EKS via
+# bootstrap_cluster_creator_admin_permissions and is NOT managed here
+# (an explicit entry resource conflicts with the bootstrapped one).
 resource "aws_eks_access_policy_association" "creator_admin" {
   cluster_name  = aws_eks_cluster.this.name
   policy_arn    = "arn:${data.aws_partition.current.partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
@@ -109,6 +105,27 @@ resource "aws_eks_access_policy_association" "creator_admin" {
   access_scope {
     type = "cluster"
   }
+
+  depends_on = [time_sleep.cluster_wait]
+}
+
+# ------------------------------------------------------------------
+# Managed addons (required when bootstrap_self_managed_addons = false)
+# ------------------------------------------------------------------
+
+resource "aws_eks_addon" "vpc_cni" {
+  cluster_name = aws_eks_cluster.this.name
+  addon_name   = "vpc-cni"
+}
+
+resource "aws_eks_addon" "kube_proxy" {
+  cluster_name = aws_eks_cluster.this.name
+  addon_name   = "kube-proxy"
+}
+
+resource "aws_eks_addon" "coredns" {
+  cluster_name = aws_eks_cluster.this.name
+  addon_name   = "coredns"
 }
 
 # ------------------------------------------------------------------
@@ -214,6 +231,7 @@ resource "aws_eks_node_group" "this" {
     aws_iam_role_policy_attachment.node_worker,
     aws_iam_role_policy_attachment.node_cni,
     aws_iam_role_policy_attachment.node_ecr,
+    aws_eks_addon.vpc_cni,
     time_sleep.cluster_wait,
   ]
 }

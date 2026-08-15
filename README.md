@@ -130,6 +130,8 @@ To remove the application use `kubectl` again:
 kubectl delete -f https://github.com/aws-containers/retail-store-sample-app/releases/latest/download/kubernetes.yaml
 ```
 
+For this repository's own EKS deployment manifests, see [k8s/README.md](./k8s/README.md).
+
 ### Terraform
 
 The following options are available to deploy the application using Terraform:

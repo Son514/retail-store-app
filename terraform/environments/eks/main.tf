@@ -26,6 +26,8 @@ module "eks" {
   private_subnet_ids = data.terraform_remote_state.network.outputs.private_subnet_ids
   cluster_version    = var.cluster_version
 
+  node_group_instance_types = ["t3.small"]
+
   tags = merge({
     "created-by" = "retail-store-app"
   }, var.tags)
