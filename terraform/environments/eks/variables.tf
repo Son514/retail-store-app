@@ -16,6 +16,18 @@ variable "cluster_version" {
   description = "Kubernetes version for the EKS cluster"
 }
 
+variable "cluster_endpoint_public_access_cidrs" {
+  type        = list(string)
+  default     = ["180.191.186.138/32"]
+  description = "CIDRs allowed to reach the public EKS API endpoint"
+}
+
+variable "cluster_endpoint_private_access" {
+  type        = bool
+  default     = true
+  description = "Whether the EKS cluster API endpoint is reachable from within the VPC"
+}
+
 variable "tags" {
   type        = map(string)
   default     = {}

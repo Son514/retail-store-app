@@ -28,6 +28,9 @@ module "eks" {
 
   node_group_instance_types = ["t3.small"]
 
+  cluster_endpoint_public_access_cidrs = var.cluster_endpoint_public_access_cidrs
+  cluster_endpoint_private_access      = var.cluster_endpoint_private_access
+
   tags = merge({
     "created-by" = "retail-store-app"
   }, var.tags)

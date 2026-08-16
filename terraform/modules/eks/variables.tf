@@ -36,6 +36,12 @@ variable "cluster_endpoint_public_access_cidrs" {
   description = "CIDRs allowed to reach the public API endpoint"
 }
 
+variable "cluster_endpoint_private_access" {
+  type        = bool
+  default     = false
+  description = "Whether the EKS cluster API endpoint is reachable from within the VPC"
+}
+
 variable "node_group_instance_types" {
   type        = list(string)
   default     = ["t3.micro"]

@@ -84,7 +84,7 @@ resource "aws_eks_cluster" "this" {
   vpc_config {
     subnet_ids              = var.private_subnet_ids
     endpoint_public_access  = var.cluster_endpoint_public_access
-    endpoint_private_access = false
+    endpoint_private_access = var.cluster_endpoint_private_access
     public_access_cidrs     = var.cluster_endpoint_public_access_cidrs
   }
 
