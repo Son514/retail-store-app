@@ -25,6 +25,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: catalog-config
+          env:
+            - name: RETAIL_CATALOG_PERSISTENCE_PASSWORD
+              value: catalog_pass
           securityContext:
             capabilities:
               drop:

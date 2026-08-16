@@ -7,5 +7,8 @@ metadata:
     app.kubernetes.io/name: catalog
     app.kubernetes.io/owner: retail-store-sample
 data:
-  RETAIL_CATALOG_PERSISTENCE_PROVIDER: in-memory
+  RETAIL_CATALOG_PERSISTENCE_PROVIDER: mysql
+  RETAIL_CATALOG_PERSISTENCE_ENDPOINT: mysql:3306
+  RETAIL_CATALOG_PERSISTENCE_DB_NAME: catalogdb
+  RETAIL_CATALOG_PERSISTENCE_USER: catalog_user
   RETAIL_CATALOG_SEARCH_ENABLED: "false"
