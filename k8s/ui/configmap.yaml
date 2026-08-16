@@ -9,3 +9,4 @@ metadata:
 data:
   RETAIL_UI_THEME: default
   RETAIL_UI_SEARCH_ENABLED: "false"
+  RETAIL_UI_ENDPOINTS_CATALOG: http://catalog
