@@ -19,6 +19,7 @@ All resources are deployed to the `development` namespace.
 | `catalog/configmap.yaml`   | Catalog environment configuration (`catalog-config`).         |
 | `catalog/mysql/statefulset.yaml` | MySQL StatefulSet (1 replica, ephemeral storage).         |
 | `catalog/mysql/service.yaml`     | Headless service exposing MySQL on port 3306.               |
+| `catalog/mysql/secret.yaml`      | Database credentials (`catalog-db`).                       |
 
 ## Prerequisites
 

@@ -26,13 +26,22 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_ROOT_PASSWORD
-              value: catalog_pass
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-db
+                  key: MYSQL_ROOT_PASSWORD
             - name: MYSQL_DATABASE
               value: catalogdb
             - name: MYSQL_USER
-              value: catalog_user
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-db
+                  key: RETAIL_CATALOG_PERSISTENCE_USER
             - name: MYSQL_PASSWORD
-              value: catalog_pass
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-db
+                  key: RETAIL_CATALOG_PERSISTENCE_PASSWORD
           ports:
             - name: mysql
               containerPort: 3306

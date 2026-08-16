@@ -27,7 +27,10 @@ spec:
                 name: catalog-config
           env:
             - name: RETAIL_CATALOG_PERSISTENCE_PASSWORD
-              value: catalog_pass
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-db
+                  key: RETAIL_CATALOG_PERSISTENCE_PASSWORD
           securityContext:
             capabilities:
               drop:
