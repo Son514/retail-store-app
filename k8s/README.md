@@ -14,6 +14,9 @@ All resources are deployed to the `development` namespace.
 | `ui/deployment.yaml`       | UI deployment (1 replica, probes, security context).           |
 | `ui/service.yaml`          | ClusterIP service exposing the UI on port 80.                  |
 | `ui/configmap.yaml`        | UI environment configuration (`ui-config`).                    |
+| `catalog/deployment.yaml`  | Catalog deployment (1 replica, readiness probe, security context). |
+| `catalog/service.yaml`     | ClusterIP service exposing the catalog on port 80.             |
+| `catalog/configmap.yaml`   | Catalog environment configuration (`catalog-config`).         |
 
 ## Prerequisites
 

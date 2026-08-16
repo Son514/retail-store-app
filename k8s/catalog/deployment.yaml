@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog
+  namespace: development
+  labels:
+    app.kubernetes.io/name: catalog
+    app.kubernetes.io/component: service
+    app.kubernetes.io/owner: retail-store-sample
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: catalog
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: catalog
+        app.kubernetes.io/component: service
+        app.kubernetes.io/owner: retail-store-sample
+    spec:
+      containers:
+        - name: catalog
+          image: 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/catalog:1.0
+          envFrom:
+            - configMapRef:
+                name: catalog-config
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 256m
+              memory: 256Mi
+            limits:
+              memory: 256Mi
