@@ -6,7 +6,7 @@ variable "region" {
 
 variable "repositories" {
   type        = list(string)
-  default     = ["ui", "catalog", "cart", "checkout", "orders"]
+  default     = ["ui", "catalog", "cart", "checkout", "orders", "test-tools"]
   description = "Microservice repositories to create in ECR"
 }
 

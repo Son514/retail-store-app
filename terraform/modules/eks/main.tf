@@ -128,6 +128,11 @@ resource "aws_eks_addon" "coredns" {
   addon_name   = "coredns"
 }
 
+resource "aws_eks_addon" "pod_identity_agent" {
+  cluster_name = aws_eks_cluster.this.name
+  addon_name   = "eks-pod-identity-agent"
+}
+
 # ------------------------------------------------------------------
 # Node security group
 # ------------------------------------------------------------------
