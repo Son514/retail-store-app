@@ -20,6 +20,8 @@ All resources are deployed to the `development` namespace.
 | `catalog/mysql/statefulset.yaml` | MySQL StatefulSet (1 replica, ephemeral storage).         |
 | `catalog/mysql/service.yaml`     | Headless service exposing MySQL on port 3306.               |
 | `catalog/mysql/secret.yaml`      | Database credentials (`catalog-db`).                       |
+| `test/serviceaccount.yaml`       | Service account for the test pod.                          |
+| `test/pod.yaml`                  | Debug pod (aws-cli, curl, nslookup, mysql, sleeps 1 hour). |
 
 ## Prerequisites
 
@@ -28,21 +30,24 @@ All resources are deployed to the `development` namespace.
 - `kubectl` configured with the cluster context.
 - `docker` and the AWS CLI installed and authenticated.
 
-## Build and push the image
+## Build and push the images
 
-The UI image must be pushed to ECR before the deployment can pull it. The
-repositories use **immutable tags**, so each build must use a new tag.
+The UI and test-tools images must be pushed to ECR before the deployment can
+pull them. The repositories use **immutable tags**, so each build must use a
+new tag.
 
 ```bash
 # 1. Authenticate docker with the ECR registry
 aws ecr get-login-password --region ap-southeast-1 | \
   docker login --username AWS --password-stdin 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com
 
-# 2. Build the UI image
+# 2. Build and push the UI image
 docker build -t 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/ui:0.0.1 src/ui
-
-# 3. Push it
 docker push 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/ui:0.0.1
+
+# 3. Build and push the test-tools image
+docker build -t 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/test-tools:latest src/test
+docker push 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/test-tools:latest
 ```
 
 ## Deploy
