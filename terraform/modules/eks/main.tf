@@ -134,6 +134,37 @@ resource "aws_eks_addon" "pod_identity_agent" {
 }
 
 # ------------------------------------------------------------------
+# Pod Identity — IAM role for test pod S3 access
+# ------------------------------------------------------------------
+
+resource "aws_iam_role" "test_pod_s3" {
+  name = "eks-test-pod-s3"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy_attachment" "test_pod_s3" {
+  role       = aws_iam_role.test_pod_s3.name
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonS3ReadOnlyAccess"
+}
+
+resource "aws_eks_pod_identity_association" "test_pod_s3" {
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = "development"
+  service_account = "test-pod-sa"
+  role_arn        = aws_iam_role.test_pod_s3.arn
+}
+
+# ------------------------------------------------------------------
 # Node security group
 # ------------------------------------------------------------------
 
