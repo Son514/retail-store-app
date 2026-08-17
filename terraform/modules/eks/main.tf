@@ -133,6 +133,35 @@ resource "aws_eks_addon" "pod_identity_agent" {
   addon_name   = "eks-pod-identity-agent"
 }
 
+resource "helm_release" "secrets_store_csi" {
+  name       = "secrets-store-csi-driver"
+  repository = "https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts"
+  chart      = "secrets-store-csi-driver"
+  namespace  = "kube-system"
+  version    = "1.6.0"
+
+  set {
+    name  = "syncSecret.enabled"
+    value = "true"
+  }
+
+  depends_on = [aws_eks_node_group.this]
+}
+
+resource "helm_release" "aws_secrets_store_csi_provider" {
+  name       = "secrets-provider-aws"
+  repository = "https://aws.github.io/secrets-store-csi-driver-provider-aws"
+  chart      = "secrets-store-csi-driver-provider-aws"
+  namespace  = "kube-system"
+
+  set {
+    name  = "secrets-store-csi-driver.install"
+    value = "false"
+  }
+
+  depends_on = [helm_release.secrets_store_csi]
+}
+
 # ------------------------------------------------------------------
 # Pod Identity — IAM role for test pod S3 access
 # ------------------------------------------------------------------
@@ -162,6 +191,54 @@ resource "aws_eks_pod_identity_association" "test_pod_s3" {
   namespace       = "development"
   service_account = "test-pod-sa"
   role_arn        = aws_iam_role.test_pod_s3.arn
+}
+
+# ------------------------------------------------------------------
+# AWS Secrets Manager — catalog database credentials (created externally)
+# ------------------------------------------------------------------
+
+data "aws_secretsmanager_secret" "catalog_db" {
+  name = "retail-store/catalog/db2"
+}
+
+# ------------------------------------------------------------------
+# Pod Identity — IAM role for catalog secret access
+# ------------------------------------------------------------------
+
+resource "aws_iam_role" "catalog_secret" {
+  name = "eks-catalog-secret"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy" "catalog_secret" {
+  name = "secrets-manager-access"
+  role = aws_iam_role.catalog_secret.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+      Resource = data.aws_secretsmanager_secret.catalog_db.arn
+    }]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "catalog_secret" {
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = "development"
+  service_account = "mysql-sa"
+  role_arn        = aws_iam_role.catalog_secret.arn
 }
 
 # ------------------------------------------------------------------

@@ -20,6 +20,7 @@ spec:
         app.kubernetes.io/component: database
         app.kubernetes.io/owner: retail-store-sample
     spec:
+      serviceAccountName: mysql-sa
       containers:
         - name: mysql
           image: public.ecr.aws/docker/library/mysql:8.0
@@ -73,6 +74,15 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/mysql
+            - name: secrets
+              mountPath: "/mnt/secrets"
+              readOnly: true
       volumes:
         - name: data
           emptyDir: {}
+        - name: secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: catalog-db
