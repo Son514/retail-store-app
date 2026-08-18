@@ -25,24 +25,16 @@ spec:
         - name: mysql
           image: public.ecr.aws/docker/library/mysql:8.0
           imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - |
+              export MYSQL_ROOT_PASSWORD=$(cat /mnt/secrets/MYSQL_ROOT_PASSWORD)
+              export MYSQL_USER=$(cat /mnt/secrets/RETAIL_CATALOG_PERSISTENCE_USER)
+              export MYSQL_PASSWORD=$(cat /mnt/secrets/RETAIL_CATALOG_PERSISTENCE_PASSWORD)
+              exec docker-entrypoint.sh mysqld
           env:
-            - name: MYSQL_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: catalog-db
-                  key: MYSQL_ROOT_PASSWORD
             - name: MYSQL_DATABASE
               value: catalogdb
-            - name: MYSQL_USER
-              valueFrom:
-                secretKeyRef:
-                  name: catalog-db
-                  key: RETAIL_CATALOG_PERSISTENCE_USER
-            - name: MYSQL_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: catalog-db
-                  key: RETAIL_CATALOG_PERSISTENCE_PASSWORD
           ports:
             - name: mysql
               containerPort: 3306
@@ -75,7 +67,7 @@ spec:
             - name: data
               mountPath: /var/lib/mysql
             - name: secrets
-              mountPath: "/mnt/secrets"
+              mountPath: /mnt/secrets
               readOnly: true
       volumes:
         - name: data
