@@ -8,6 +8,11 @@ output "cluster_endpoint" {
   value       = module.eks.cluster_endpoint
 }
 
+output "cluster_certificate_authority_data" {
+  description = "Certificate authority data of the EKS cluster (base64)"
+  value       = module.eks.cluster_certificate_authority_data
+}
+
 output "cluster_oidc_issuer_url" {
   description = "OIDC issuer URL of the EKS cluster"
   value       = module.eks.cluster_oidc_issuer_url
@@ -21,6 +26,11 @@ output "node_group_arn" {
 output "node_security_group_id" {
   description = "ID of the node security group"
   value       = module.eks.node_security_group_id
+}
+
+output "cluster_security_group_id" {
+  description = "ID of the EKS-managed cluster security group (attached to node ENIs)"
+  value       = module.eks.cluster_security_group_id
 }
 
 output "oidc_provider_arn" {
