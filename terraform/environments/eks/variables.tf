@@ -18,7 +18,7 @@ variable "cluster_version" {
 
 variable "cluster_endpoint_public_access_cidrs" {
   type        = list(string)
-  default     = ["180.191.186.138/32"]
+  default     = ["180.191.186.138/32", "180.191.185.168/32", "180.191.186.99/32", "136.158.100.7/32"]
   description = "CIDRs allowed to reach the public EKS API endpoint"
 }
 

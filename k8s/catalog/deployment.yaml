@@ -19,18 +19,19 @@ spec:
         app.kubernetes.io/component: service
         app.kubernetes.io/owner: retail-store-sample
     spec:
+      serviceAccountName: mysql-sa
       containers:
         - name: catalog
           image: 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/catalog:1.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              export RETAIL_CATALOG_PERSISTENCE_USER=$(cat /mnt/secrets/RETAIL_CATALOG_PERSISTENCE_USER)
+              export RETAIL_CATALOG_PERSISTENCE_PASSWORD=$(cat /mnt/secrets/RETAIL_CATALOG_PERSISTENCE_PASSWORD)
+              exec /app/main
           envFrom:
             - configMapRef:
                 name: catalog-config
-          env:
-            - name: RETAIL_CATALOG_PERSISTENCE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: catalog-db
-                  key: RETAIL_CATALOG_PERSISTENCE_PASSWORD
           securityContext:
             capabilities:
               drop:

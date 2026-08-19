@@ -27,6 +27,7 @@ module "eks" {
   cluster_version    = var.cluster_version
 
   node_group_instance_types = ["t3.small"]
+  node_group_desired_size   = 2
 
   cluster_endpoint_public_access_cidrs = var.cluster_endpoint_public_access_cidrs
   cluster_endpoint_private_access      = var.cluster_endpoint_private_access

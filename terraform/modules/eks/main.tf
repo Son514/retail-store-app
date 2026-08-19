@@ -133,33 +133,46 @@ resource "aws_eks_addon" "pod_identity_agent" {
   addon_name   = "eks-pod-identity-agent"
 }
 
-resource "helm_release" "secrets_store_csi" {
-  name       = "secrets-store-csi-driver"
-  repository = "https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts"
-  chart      = "secrets-store-csi-driver"
-  namespace  = "kube-system"
-  version    = "1.6.0"
-
-  set {
-    name  = "syncSecret.enabled"
-    value = "true"
-  }
-
-  depends_on = [aws_eks_node_group.this]
+resource "aws_eks_addon" "ebs_csi" {
+  cluster_name = aws_eks_cluster.this.name
+  addon_name   = "aws-ebs-csi-driver"
 }
 
-resource "helm_release" "aws_secrets_store_csi_provider" {
-  name       = "secrets-provider-aws"
-  repository = "https://aws.github.io/secrets-store-csi-driver-provider-aws"
-  chart      = "secrets-store-csi-driver-provider-aws"
-  namespace  = "kube-system"
+resource "aws_eks_addon" "secrets_store_csi_provider" {
+  cluster_name                = aws_eks_cluster.this.name
+  addon_name                  = "aws-secrets-store-csi-driver-provider"
+  resolve_conflicts_on_create = "OVERWRITE"
+}
 
-  set {
-    name  = "secrets-store-csi-driver.install"
-    value = "false"
-  }
+# ------------------------------------------------------------------
+# Pod Identity — IAM role for EBS CSI driver
+# ------------------------------------------------------------------
 
-  depends_on = [helm_release.secrets_store_csi]
+resource "aws_iam_role" "ebs_csi" {
+  name = "eks-ebs-csi"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi" {
+  role       = aws_iam_role.ebs_csi.name
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
+
+resource "aws_eks_pod_identity_association" "ebs_csi" {
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = "kube-system"
+  service_account = "ebs-csi-controller-sa"
+  role_arn        = aws_iam_role.ebs_csi.arn
 }
 
 # ------------------------------------------------------------------
@@ -347,4 +360,10 @@ resource "aws_eks_node_group" "this" {
     aws_eks_addon.vpc_cni,
     time_sleep.cluster_wait,
   ]
+}
+
+resource "time_sleep" "node_group_wait" {
+  create_duration = "60s"
+
+  depends_on = [aws_eks_node_group.this]
 }
