@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/Son514/retail-store-app/compare/v1.6.2...v1.7.0) (2026-08-20)
+
+
+### Features
+
+* add ingress with AWS Load Balancer Controller ([d51607f](https://github.com/Son514/retail-store-app/commit/d51607f4ddb238448fb57cc10c9ea36ad5f24cfc))
+
 ## [1.6.2](https://github.com/aws-containers/retail-store-sample-app/compare/v1.6.1...v1.6.2) (2026-07-28)
 
 
