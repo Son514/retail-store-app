@@ -13,11 +13,6 @@ output "cluster_certificate_authority_data" {
   value       = module.eks.cluster_certificate_authority_data
 }
 
-output "cluster_oidc_issuer_url" {
-  description = "OIDC issuer URL of the EKS cluster"
-  value       = module.eks.cluster_oidc_issuer_url
-}
-
 output "node_group_arn" {
   description = "ARN of the managed node group"
   value       = module.eks.node_group_arn
@@ -31,11 +26,6 @@ output "node_security_group_id" {
 output "cluster_security_group_id" {
   description = "ID of the EKS-managed cluster security group (attached to node ENIs)"
   value       = module.eks.cluster_security_group_id
-}
-
-output "oidc_provider_arn" {
-  description = "ARN of the IAM OIDC provider for the cluster"
-  value       = module.eks.oidc_provider_arn
 }
 
 output "configure_kubectl" {
