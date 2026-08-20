@@ -5,7 +5,7 @@ variable "cluster_name" {
 
 variable "vpc_id" {
   type        = string
-  description = "ID of the VPC where the EKS cluster will be created"
+  description = "ID of the VPC where the EKS cluster will be created (also used by the AWS Load Balancer Controller Helm chart)"
 }
 
 variable "vpc_cidr" {

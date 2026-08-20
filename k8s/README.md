@@ -13,6 +13,7 @@ All resources are deployed to the `development` namespace.
 | `namespace.yaml`           | `development` namespace shared by all services.                |
 | `ui/deployment.yaml`       | UI deployment (1 replica, probes, security context).           |
 | `ui/service.yaml`          | ClusterIP service exposing the UI on port 80.                  |
+| `ui/ingress.yaml`          | ALB Ingress (internet-facing, routes `/` to UI service).      |
 | `ui/configmap.yaml`        | UI environment configuration (`ui-config`).                    |
 | `catalog/deployment.yaml`  | Catalog deployment (1 replica, readiness probe, security context). |
 | `catalog/service.yaml`     | ClusterIP service exposing the catalog on port 80.             |
@@ -61,14 +62,20 @@ kubectl get pods -n development
 
 ## Access
 
-There is no Ingress or load balancer yet, so forward the service to your local
-machine:
+The UI is exposed through an internet-facing ALB created by the AWS Load
+Balancer Controller via an `Ingress` resource. After deploying:
 
 ```bash
-kubectl port-forward -n development svc/ui 8080:80
+kubectl get ingress ui -n development
 ```
 
-Then open <http://localhost:8080>.
+Copy the `ADDRESS` column (the ALB DNS name) and open it in your browser:
+
+```
+http://k8s-default-ui-xxxxxxxxxx-xxxxxxxxxx.ap-southeast-1.elb.amazonaws.com
+```
+
+The ALB takes a few minutes to become healthy after the first deployment.
 
 ## Update the image
 
@@ -90,4 +97,3 @@ kubectl delete -f k8s/
 - Wire the backend endpoints by adding `RETAIL_UI_ENDPOINTS_*` entries to
   `k8s/ui/configmap.yaml` once catalog, cart, and orders are deployed
   (e.g. `RETAIL_UI_ENDPOINTS_CATALOG: http://catalog:8080`).
-- Add an Ingress or LoadBalancer service to expose the UI externally.
