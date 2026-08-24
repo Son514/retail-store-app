@@ -177,7 +177,7 @@ resource "aws_eks_pod_identity_association" "test_pod_s3" {
 # ------------------------------------------------------------------
 
 data "aws_secretsmanager_secret" "catalog_db" {
-  name = "retail-store/catalog/db2"
+  name = var.secret_id
 }
 
 # ------------------------------------------------------------------
@@ -214,8 +214,10 @@ resource "aws_iam_role_policy" "catalog_secret" {
 }
 
 resource "aws_eks_pod_identity_association" "catalog_secret" {
+  for_each = toset(var.app_namespaces)
+
   cluster_name    = aws_eks_cluster.this.name
-  namespace       = "development"
+  namespace       = each.value
   service_account = "catalog-sa"
   role_arn        = aws_iam_role.catalog_secret.arn
 }

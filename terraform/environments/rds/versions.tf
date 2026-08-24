@@ -22,7 +22,7 @@ terraform {
 }
 
 provider "aws" {
-  region = var.region
+  region = var.config.region
 }
 
 data "aws_eks_cluster_auth" "this" {

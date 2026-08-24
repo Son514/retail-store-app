@@ -1,0 +1,39 @@
+# Shared deployment configuration for all Terraform environments.
+#
+# Setup (once per machine):
+#   cd terraform/environments
+#   cp shared.tfvars.example shared.tfvars
+#   ln -sf ../shared.tfvars network/terraform.tfvars
+#   ln -sf ../shared.tfvars eks/terraform.tfvars
+#   ln -sf ../shared.tfvars rds/terraform.tfvars
+#   ln -sf ../shared.tfvars ecr/terraform.tfvars
+#
+# Each environment symlinks this file as its terraform.tfvars, which
+# terraform plan/apply auto-load. Every environment declares the same single
+# "config" object, so keys unused by a given stack ride along harmlessly —
+# one file safely serves all four. shared.tfvars and the symlinks are
+# gitignored.
+
+config = {
+  # ------------------------------------------------------------------
+  # REQUIRED — CIDRs allowed to reach the EKS API endpoint.
+  # Set this to your current public IP (https://checkip.amazonaws.com).
+  # ------------------------------------------------------------------
+  cluster_endpoint_public_access_cidrs = ["203.0.113.10/32,136.158.100.117/32"]
+
+  # Optional overrides (defaults shown).
+  region                          = "ap-southeast-1"
+  tags                            = {}
+  cluster_name                    = "retail-store"
+  vpc_cidr                        = "10.0.0.0/16"
+  state_bucket                    = "retail-store-dev-terraform-state"
+  cluster_version                 = "1.35"
+  cluster_endpoint_private_access = true
+  node_group_instance_types       = ["t3.small"]
+  node_group_desired_size         = 2
+  repositories                    = ["ui", "catalog", "cart", "checkout", "orders", "test-tools"]
+  chart_repositories              = ["charts/catalog", "charts/ui"]
+  db_name                         = "catalogdb"
+  namespaces                      = ["development", "production"]
+  secret_id                       = "retail-store/catalog/db2"
+}

@@ -6,9 +6,9 @@ data "terraform_remote_state" "network" {
   backend = "s3"
 
   config = {
-    bucket       = "retail-store-dev-terraform-state"
+    bucket       = var.config.state_bucket
     key          = "network/terraform.tfstate"
-    region       = "ap-southeast-1"
+    region       = var.config.region
     use_lockfile = true
   }
 }
@@ -20,19 +20,20 @@ data "terraform_remote_state" "network" {
 module "eks" {
   source = "../../modules/eks"
 
-  cluster_name       = var.cluster_name
+  cluster_name       = var.config.cluster_name
   vpc_id             = data.terraform_remote_state.network.outputs.vpc_id
   vpc_cidr           = data.terraform_remote_state.network.outputs.vpc_cidr
   private_subnet_ids = data.terraform_remote_state.network.outputs.private_subnet_ids
-  cluster_version    = var.cluster_version
+  cluster_version    = var.config.cluster_version
+  secret_id          = var.config.secret_id
 
-  node_group_instance_types = ["t3.small"]
-  node_group_desired_size   = 2
+  node_group_instance_types = var.config.node_group_instance_types
+  node_group_desired_size   = var.config.node_group_desired_size
 
-  cluster_endpoint_public_access_cidrs = var.cluster_endpoint_public_access_cidrs
-  cluster_endpoint_private_access      = var.cluster_endpoint_private_access
+  cluster_endpoint_public_access_cidrs = var.config.cluster_endpoint_public_access_cidrs
+  cluster_endpoint_private_access      = var.config.cluster_endpoint_private_access
 
   tags = merge({
     "created-by" = "retail-store-app"
-  }, var.tags)
+  }, var.config.tags)
 }

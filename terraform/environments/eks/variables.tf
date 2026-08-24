@@ -1,35 +1,25 @@
-variable "region" {
-  type        = string
-  default     = "ap-southeast-1"
-  description = "AWS region (Singapore)"
-}
+variable "config" {
+  description = "Deployment configuration shared across all environments; set in ../shared.tfvars (see shared.tfvars.example). Keys unused by this environment are ignored."
+  type = object({
+    region                               = optional(string, "ap-southeast-1")
+    tags                                 = optional(map(string), {})
+    cluster_name                         = optional(string, "retail-store")
+    vpc_cidr                             = optional(string, "10.0.0.0/16")
+    state_bucket                         = optional(string, "retail-store-dev-terraform-state")
+    cluster_version                      = optional(string, "1.35")
+    cluster_endpoint_public_access_cidrs = optional(list(string))
+    cluster_endpoint_private_access      = optional(bool, true)
+    node_group_instance_types            = optional(list(string), ["t3.small"])
+    node_group_desired_size              = optional(number, 2)
+    repositories                         = optional(list(string), ["ui", "catalog", "cart", "checkout", "orders", "test-tools"])
+    chart_repositories                   = optional(list(string), ["charts/catalog", "charts/ui"])
+    db_name                              = optional(string, "catalogdb")
+    namespaces                           = optional(list(string), ["development", "production"])
+    secret_id                            = optional(string, "retail-store/catalog/db2")
+  })
 
-variable "cluster_name" {
-  type        = string
-  default     = "retail-store"
-  description = "Name of the EKS cluster (must match the kubernetes.io/cluster subnet tags in the network environment)"
-}
-
-variable "cluster_version" {
-  type        = string
-  default     = "1.35"
-  description = "Kubernetes version for the EKS cluster"
-}
-
-variable "cluster_endpoint_public_access_cidrs" {
-  type        = list(string)
-  default     = ["180.191.186.138/32", "180.191.185.168/32", "180.191.186.99/32", "136.158.100.7/32"]
-  description = "CIDRs allowed to reach the public EKS API endpoint"
-}
-
-variable "cluster_endpoint_private_access" {
-  type        = bool
-  default     = true
-  description = "Whether the EKS cluster API endpoint is reachable from within the VPC"
-}
-
-variable "tags" {
-  type        = map(string)
-  default     = {}
-  description = "Additional tags to apply to all resources"
+  validation {
+    condition     = try(length(var.config.cluster_endpoint_public_access_cidrs), 0) > 0
+    error_message = "config.cluster_endpoint_public_access_cidrs is required: the list of CIDRs allowed to reach the EKS API endpoint (your current IP). Set it in environments/shared.tfvars."
+  }
 }

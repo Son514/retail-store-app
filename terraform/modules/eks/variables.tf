@@ -36,6 +36,12 @@ variable "cluster_endpoint_public_access_cidrs" {
   description = "CIDRs allowed to reach the public API endpoint"
 }
 
+variable "secret_id" {
+  type        = string
+  default     = "retail-store/catalog/db2"
+  description = "Name of the Secrets Manager secret holding the catalog DB credentials; its ARN scopes the Pod Identity role's GetSecretValue policy"
+}
+
 variable "cluster_endpoint_private_access" {
   type        = bool
   default     = false
@@ -64,6 +70,12 @@ variable "node_group_max_size" {
   type        = number
   default     = 3
   description = "Maximum number of nodes in the managed node group"
+}
+
+variable "app_namespaces" {
+  type        = list(string)
+  default     = ["development", "production"]
+  description = "Kubernetes namespaces the catalog service account gets Pod Identity associations in"
 }
 
 variable "tags" {
