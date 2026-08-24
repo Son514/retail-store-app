@@ -1,0 +1,57 @@
+# Default values for the catalog chart.
+# Deployed to the EKS cluster provisioned by ../../terraform.
+
+replicaCount: 1
+
+image:
+  repository: 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/catalog
+  tag: "1.0"
+  pullPolicy: IfNotPresent
+
+containerPort: 8080
+
+serviceAccount:
+  # Must stay fixed: the EKS Pod Identity association for Secrets Manager
+  # access targets this service account (see terraform/modules/eks).
+  create: true
+  name: catalog-sa
+
+service:
+  type: ClusterIP
+  port: 80
+
+# ConfigMap managed by the terraform rds environment, referenced not created.
+externalConfigMap:
+  name: catalog-config
+
+secretProviderClass:
+  name: catalog-app
+  provider: aws
+  usePodIdentity: "true"
+  region: ap-southeast-1
+  # Keep in sync with config.secret_id (terraform/environments/shared.tfvars);
+  # charts cannot read Terraform variables.
+  secretName: retail-store/catalog/db2
+  keys:
+    - RETAIL_CATALOG_PERSISTENCE_USER
+    - RETAIL_CATALOG_PERSISTENCE_PASSWORD
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+readinessProbe:
+  path: /health
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+resources:
+  requests:
+    cpu: 256m
+    memory: 256Mi
+  limits:
+    memory: 256Mi

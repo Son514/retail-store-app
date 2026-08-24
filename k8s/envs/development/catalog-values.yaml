@@ -1,0 +1,8 @@
+# Development overrides for the catalog chart.
+# Anything not listed here inherits the chart defaults in
+# k8s/charts/catalog/values.yaml.
+
+replicaCount: 1
+
+image:
+  tag: "1.0"

@@ -1,0 +1,16 @@
+# Production overrides for the catalog chart.
+# Anything not listed here inherits the chart defaults in
+# k8s/charts/catalog/values.yaml.
+
+replicaCount: 2
+
+image:
+  # Bump to the latest pushed tag before deploying (ECR tags are immutable).
+  tag: "1.0"
+
+resources:
+  requests:
+    cpu: 256m
+    memory: 256Mi
+  limits:
+    memory: 512Mi

@@ -1,0 +1,21 @@
+# Production overrides for the ui chart.
+# Anything not listed here inherits the chart defaults in
+# k8s/charts/ui/values.yaml.
+
+replicaCount: 2
+
+image:
+  # Bump to the latest pushed tag before deploying (ECR tags are immutable).
+  tag: "1.0"
+
+config:
+  RETAIL_UI_THEME: default
+  RETAIL_UI_SEARCH_ENABLED: "false"
+  RETAIL_UI_ENDPOINTS_CATALOG: http://catalog
+
+resources:
+  requests:
+    cpu: 256m
+    memory: 512Mi
+  limits:
+    memory: 768Mi
