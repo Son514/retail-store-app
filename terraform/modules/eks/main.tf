@@ -358,9 +358,9 @@ resource "aws_security_group_rule" "node_ingress_dns_tcp" {
 # Allow nodes to reach the cluster API on the EKS-managed cluster SG.
 resource "aws_security_group_rule" "cluster_ingress_node" {
   type                     = "ingress"
-  from_port                = 443
-  to_port                  = 443
-  protocol                 = "tcp"
+  from_port                = 0
+  to_port                  = 0
+  protocol                 = "-1"
   source_security_group_id = aws_security_group.node.id
   security_group_id        = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
 }

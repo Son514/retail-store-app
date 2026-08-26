@@ -28,6 +28,11 @@ output "node_security_group_id" {
   value       = aws_security_group.node.id
 }
 
+output "node_iam_role_arn" {
+  description = "ARN of the IAM role used by the managed node group"
+  value       = aws_iam_role.node.arn
+}
+
 output "node_group_id" {
   description = "ID of the managed node group"
   value       = aws_eks_node_group.this.id

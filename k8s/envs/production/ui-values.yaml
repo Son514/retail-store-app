@@ -2,7 +2,7 @@
 # Anything not listed here inherits the chart defaults in
 # k8s/charts/ui/values.yaml.
 
-replicaCount: 2
+replicaCount: 10
 
 image:
   # Bump to the latest pushed tag before deploying (ECR tags are immutable).
@@ -13,9 +13,20 @@ config:
   RETAIL_UI_SEARCH_ENABLED: "false"
   RETAIL_UI_ENDPOINTS_CATALOG: http://catalog
 
+# PDB ensures at least 1 pod stays running during Karpenter spot
+# disruptions, node consolidation, or voluntary evictions.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
 resources:
   requests:
     cpu: 256m
     memory: 512Mi
   limits:
     memory: 768Mi
+
+# Schedule on Karpenter spot nodes for cost savings.
+nodeSelector:
+  karpenter.sh/capacity-type: spot
+tolerations: []

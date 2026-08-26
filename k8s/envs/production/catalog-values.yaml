@@ -2,11 +2,17 @@
 # Anything not listed here inherits the chart defaults in
 # k8s/charts/catalog/values.yaml.
 
-replicaCount: 2
+replicaCount: 10
 
 image:
   # Bump to the latest pushed tag before deploying (ECR tags are immutable).
   tag: "1.0"
+
+# PDB ensures at least 1 pod stays running during Karpenter spot
+# disruptions, node consolidation, or voluntary evictions.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
 
 resources:
   requests:
@@ -14,3 +20,8 @@ resources:
     memory: 256Mi
   limits:
     memory: 512Mi
+
+# Schedule on Karpenter spot nodes for cost savings.
+nodeSelector:
+  karpenter.sh/capacity-type: spot
+tolerations: []

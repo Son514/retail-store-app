@@ -69,6 +69,45 @@ docker build -t 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/test-tools:lat
 docker push 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/test-tools:latest
 ```
 
+## Update UI content
+
+All UI content (templates, CSS, images, product data, labels) lives in
+`src/ui/src/main/resources/` and is baked into the Docker image at build time.
+To push a content change to the cluster:
+
+1. Edit the relevant files under `src/ui/src/main/resources/`:
+   - `templates/*.html` — page layout and content
+   - `static/assets/css/` — styles and themes
+   - `static/assets/img/` — hero, product, and avatar images
+   - `data/products.json` — product catalog entries
+   - `lang/messages.properties` — UI text labels
+
+2. Build and push a new image with a bumped tag (ECR tags are immutable):
+   ```bash
+   aws ecr get-login-password --region ap-southeast-1 | \
+     docker login --username AWS --password-stdin 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com
+
+   docker build -t 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/ui:1.1 src/ui
+   docker push 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/ui:1.1
+   ```
+
+3. Update the image tag in `k8s/envs/production/ui-values.yaml`:
+   ```yaml
+   image:
+     tag: "1.1"
+   ```
+
+4. Deploy (no chart change needed — this is a value-only update):
+   ```bash
+   helm upgrade -i ui \
+     oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/charts/ui \
+     --version 0.3.0 -n production -f k8s/envs/production/ui-values.yaml
+   ```
+
+The `maxSurge: 0` rolling update strategy terminates old pods before creating
+new ones, so the deployment completes within the existing NodePool capacity
+without provisioning additional nodes.
+
 ## Publish the charts to ECR (OCI)
 
 Charts are stored in ECR as OCI artifacts, one repository per chart
@@ -94,25 +133,26 @@ helm push ui-0.1.0.tgz oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/c
 
 ## Deploy
 
-Install each release into its namespace from the published chart version,
-combined with the matching environment values file:
+Deploy each release into its namespace from the published chart version,
+combined with the matching environment values file. `helm upgrade -i` is
+idempotent — it installs if the release doesn't exist, upgrades if it does:
 
 ```bash
 # Development
-helm install catalog \
+helm upgrade -i catalog \
   oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/charts/catalog \
-  --version 0.1.0 -n development -f k8s/envs/development/catalog-values.yaml
-helm install ui \
+  --version 0.3.0 -n development -f k8s/envs/development/catalog-values.yaml
+helm upgrade -i ui \
   oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/charts/ui \
-  --version 0.1.0 -n development -f k8s/envs/development/ui-values.yaml
+  --version 0.3.0 -n development -f k8s/envs/development/ui-values.yaml
 
 # Production
-helm install catalog \
+helm upgrade -i catalog \
   oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/charts/catalog \
-  --version 0.1.0 -n production -f k8s/envs/production/catalog-values.yaml
-helm install ui \
+  --version 0.3.0 -n production -f k8s/envs/production/catalog-values.yaml
+helm upgrade -i ui \
   oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/charts/ui \
-  --version 0.1.0 -n production -f k8s/envs/production/ui-values.yaml
+  --version 0.3.0 -n production -f k8s/envs/production/ui-values.yaml
 
 kubectl wait --for=condition=available deploy/catalog deploy/ui -n development --timeout=180s
 kubectl wait --for=condition=available deploy/catalog deploy/ui -n production --timeout=180s
@@ -121,7 +161,7 @@ kubectl get pods -A -l app.kubernetes.io/owner=retail-store-sample
 
 Quick-start fallback: while iterating locally you can skip publishing and
 install straight from the working tree by substituting the local chart path,
-e.g. `helm install catalog k8s/charts/catalog -n development -f …`.
+e.g. `helm upgrade -i catalog k8s/charts/catalog -n development -f …`.
 
 The catalog must be installed first if you point the UI at it: set
 `RETAIL_UI_ENDPOINTS_CATALOG` in the environment's `ui-values.yaml`.
@@ -151,7 +191,7 @@ Publish a new chart version (see above), then upgrade each release to it:
 ```bash
 helm upgrade catalog \
   oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/charts/catalog \
-  --version 0.2.0 -n production -f k8s/envs/production/catalog-values.yaml
+  --version 0.4.0 -n production -f k8s/envs/production/catalog-values.yaml
 ```
 
 Value-only changes (e.g. a new image tag in the environment's values file)
@@ -173,3 +213,43 @@ IAM roles) is unaffected.
 
 - Add charts for cart, orders, and checkout following the same pattern once
   their persistence/messaging backends are decided.
+
+## Karpenter Spot Instances
+
+Karpenter dynamically provisions spot EC2 instances for unscheduled pods.
+The managed node group (on-demand `t3.small`) remains as a fallback for
+critical workloads. The spot NodePool uses `t3.micro` and `t3.small` instances across all three
+AZs with a total resource limit of 16 CPU and 24Gi memory. (`t3.medium` is
+excluded because it is not eligible for the AWS Free Tier.)
+
+Production workloads are protected by Pod Disruption Budgets (`minAvailable: 1`)
+so Karpenter respects availability during spot interruptions and node consolidation.
+
+### Monitoring
+
+Open four terminals to observe Karpenter behavior in real time:
+
+**Terminal 1 — Karpenter Logs (filtered)**
+
+```bash
+kubectl logs -n kube-system -l app.kubernetes.io/name=karpenter -f | \
+  grep -E "interrupt|cordon|drain"
+```
+
+**Terminal 2 — Node Status**
+
+```bash
+kubectl get nodes -l karpenter.sh/capacity-type=spot -w
+```
+
+**Terminal 3 — Pod Status**
+
+```bash
+kubectl get pods -l app=spot-test -o wide -w
+```
+
+**Terminal 4 — NodeClaims**
+
+```bash
+kubectl get nodeclaims -w
+```

@@ -6,3 +6,7 @@ replicaCount: 1
 
 image:
   tag: "1.0"
+
+# PDB disabled in dev — single replica cannot tolerate any disruption.
+podDisruptionBudget:
+  enabled: false

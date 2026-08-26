@@ -37,3 +37,24 @@ module "eks" {
     "created-by" = "retail-store-app"
   }, var.config.tags)
 }
+
+# ------------------------------------------------------------------
+# Karpenter — spot instance node pool
+# ------------------------------------------------------------------
+
+module "karpenter" {
+  source = "../../modules/karpenter"
+
+  cluster_name                      = module.eks.cluster_name
+  cluster_endpoint                  = module.eks.cluster_endpoint
+  cluster_version                   = var.config.cluster_version
+  cluster_certificate_authority_data = module.eks.cluster_certificate_authority_data
+  vpc_id                            = data.terraform_remote_state.network.outputs.vpc_id
+  private_subnet_ids                = data.terraform_remote_state.network.outputs.private_subnet_ids
+  node_security_group_id            = module.eks.node_security_group_id
+  node_iam_role_arn                 = module.eks.node_iam_role_arn
+
+  tags = merge({
+    "created-by" = "retail-store-app"
+  }, var.config.tags)
+}

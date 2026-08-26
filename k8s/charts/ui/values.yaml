@@ -45,9 +45,23 @@ livenessProbe:
   initialDelaySeconds: 30
   periodSeconds: 10
 
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
 resources:
   requests:
     cpu: 128m
     memory: 512Mi
   limits:
     memory: 512Mi
+
+# Node placement — override per environment to target spot or on-demand.
+nodeSelector: {}
+tolerations: []
+
+# Rolling update strategy — maxSurge: 0 ensures old pods terminate before new
+# ones are created, preventing memory overcommit on capacity-constrained nodes.
+strategy:
+  maxSurge: 0
+  maxUnavailable: 1
