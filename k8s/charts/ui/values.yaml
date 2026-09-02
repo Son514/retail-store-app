@@ -60,6 +60,17 @@ resources:
 nodeSelector: {}
 tolerations: []
 
+# Pod topology spread — override per environment to distribute across AZs.
+topologySpreadConstraints: []
+
+# Horizontal Pod Autoscaler — controls Deployment.replicas when enabled.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 50
+  targetMemoryUtilizationPercentage: ""
+
 # Rolling update strategy — maxSurge: 0 ensures old pods terminate before new
 # ones are created, preventing memory overcommit on capacity-constrained nodes.
 strategy:

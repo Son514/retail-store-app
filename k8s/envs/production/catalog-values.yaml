@@ -2,11 +2,20 @@
 # Anything not listed here inherits the chart defaults in
 # k8s/charts/catalog/values.yaml.
 
-replicaCount: 10
+# HPA controls Deployment.replicas; set baseline to autoscaling.minReplicas.
+replicaCount: 3
 
 image:
   # Bump to the latest pushed tag before deploying (ECR tags are immutable).
   tag: "1.0"
+
+# Scale between 3 and 10 replicas based on CPU/memory utilization.
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
 
 # PDB ensures at least 1 pod stays running during Karpenter spot
 # disruptions, node consolidation, or voluntary evictions.
@@ -25,3 +34,12 @@ resources:
 nodeSelector:
   karpenter.sh/capacity-type: spot
 tolerations: []
+
+# Soft-spread pods across AZs (best effort, never blocks scheduling).
+topologySpreadConstraints:
+  - maxSkew: 2
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: catalog
