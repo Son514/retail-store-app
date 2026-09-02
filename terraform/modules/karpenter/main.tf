@@ -150,6 +150,13 @@ resource "aws_iam_role_policy" "karpenter_controller" {
         ]
         Resource = "arn:aws:ssm:${data.aws_region.current.region}::parameter/aws/service/eks/optimized-ami/*"
       },
+      {
+        Effect = "Allow"
+        Action = [
+          "pricing:GetProducts",
+        ]
+        Resource = "*"
+      },
     ]
   })
 }
@@ -163,6 +170,86 @@ resource "aws_sqs_queue" "karpenter" {
   message_retention_seconds = 300
 
   tags = var.tags
+}
+
+# ------------------------------------------------------------------
+# EventBridge → Karpenter Interruption Queue
+# ------------------------------------------------------------------
+
+# AWS Health Events → SQS
+resource "aws_cloudwatch_event_rule" "karpenter_health_event" {
+  name        = "${var.cluster_name}-karpenter-health"
+  description = "AWS Health Event → Karpenter Interruption Queue"
+
+  event_pattern = jsonencode({
+    source        = ["aws.health"]
+    "detail-type" = ["AWS Health Event"]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "karpenter_health_target" {
+  rule      = aws_cloudwatch_event_rule.karpenter_health_event.name
+  target_id = "KarpenterHealthTarget"
+  arn       = aws_sqs_queue.karpenter.arn
+}
+
+# EC2 Spot Interruption Warning → SQS
+resource "aws_cloudwatch_event_rule" "karpenter_spot_interrupt" {
+  name        = "${var.cluster_name}-karpenter-spot"
+  description = "EC2 Spot Interruption Warning → Karpenter SQS Queue"
+
+  event_pattern = jsonencode({
+    source        = ["aws.ec2"]
+    "detail-type" = ["EC2 Spot Instance Interruption Warning"]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "karpenter_spot_target" {
+  rule      = aws_cloudwatch_event_rule.karpenter_spot_interrupt.name
+  target_id = "KarpenterSpotTarget"
+  arn       = aws_sqs_queue.karpenter.arn
+}
+
+# EC2 Instance Rebalance Recommendation → SQS
+resource "aws_cloudwatch_event_rule" "karpenter_rebalance" {
+  name        = "${var.cluster_name}-karpenter-rebal"
+  description = "EC2 Instance Rebalance Recommendation → Karpenter SQS Queue"
+
+  event_pattern = jsonencode({
+    source        = ["aws.ec2"]
+    "detail-type" = ["EC2 Instance Rebalance Recommendation"]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "karpenter_rebalance_target" {
+  rule      = aws_cloudwatch_event_rule.karpenter_rebalance.name
+  target_id = "KarpenterRebalanceTarget"
+  arn       = aws_sqs_queue.karpenter.arn
+}
+
+# EC2 Instance State-change Notification → SQS
+resource "aws_cloudwatch_event_rule" "karpenter_instance_state" {
+  name        = "${var.cluster_name}-karpenter-state"
+  description = "EC2 Instance State Change Notification → Karpenter SQS Queue"
+
+  event_pattern = jsonencode({
+    source        = ["aws.ec2"]
+    "detail-type" = ["EC2 Instance State-change Notification"]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "karpenter_instance_state_target" {
+  rule      = aws_cloudwatch_event_rule.karpenter_instance_state.name
+  target_id = "KarpenterStateTarget"
+  arn       = aws_sqs_queue.karpenter.arn
 }
 
 # ------------------------------------------------------------------
@@ -214,6 +301,7 @@ resource "helm_release" "karpenter" {
 
   depends_on = [
     aws_eks_pod_identity_association.karpenter_controller,
+    var.aws_lb_controller_release,
   ]
 }
 

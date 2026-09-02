@@ -10,7 +10,12 @@ variable "private_subnet_ids" {
 
 variable "eks_node_security_group_id" {
   type        = string
-  description = "Security group ID of the EKS node group (allowed to connect to RDS on port 3306)"
+  description = "Security group ID of the EKS node security group (allowed to connect to RDS on port 3306)"
+}
+
+variable "eks_cluster_security_group_id" {
+  type        = string
+  description = "Security group ID of the EKS-managed cluster security group (allowed to connect to RDS on port 3306)"
 }
 
 variable "secret_id" {

@@ -298,6 +298,22 @@ resource "helm_release" "aws_lb_controller" {
 }
 
 # ------------------------------------------------------------------
+# metrics-server — supplies resource metrics for HorizontalPodAutoscaler
+# ------------------------------------------------------------------
+
+resource "helm_release" "metrics_server" {
+  name       = "metrics-server"
+  repository = "https://kubernetes-sigs.github.io/metrics-server/"
+  chart      = "metrics-server"
+  version    = "3.12.2"
+  namespace  = "kube-system"
+
+  depends_on = [
+    aws_eks_node_group.this,
+  ]
+}
+
+# ------------------------------------------------------------------
 # Node security group
 # ------------------------------------------------------------------
 

@@ -43,3 +43,8 @@ variable "tags" {
   default     = {}
   description = "Additional tags to apply to all resources"
 }
+
+variable "aws_lb_controller_release" {
+  type        = string
+  description = "Helm release ID of the AWS Load Balancer Controller (ensures its webhook is ready before Karpenter resources are created)"
+}

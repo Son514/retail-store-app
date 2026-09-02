@@ -33,6 +33,11 @@ output "node_iam_role_arn" {
   value       = aws_iam_role.node.arn
 }
 
+output "aws_lb_controller_release" {
+  description = "Helm release ID of the AWS Load Balancer Controller (installed and ready)"
+  value       = helm_release.aws_lb_controller.id
+}
+
 output "node_group_id" {
   description = "ID of the managed node group"
   value       = aws_eks_node_group.this.id

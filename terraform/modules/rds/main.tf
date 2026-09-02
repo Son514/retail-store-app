@@ -33,6 +33,15 @@ resource "aws_security_group_rule" "rds_ingress" {
   security_group_id        = aws_security_group.rds.id
 }
 
+resource "aws_security_group_rule" "rds_ingress_cluster" {
+  type                     = "ingress"
+  from_port                = 3306
+  to_port                  = 3306
+  protocol                 = "tcp"
+  source_security_group_id = var.eks_cluster_security_group_id
+  security_group_id        = aws_security_group.rds.id
+}
+
 resource "aws_security_group_rule" "rds_egress" {
   type              = "egress"
   from_port         = 0

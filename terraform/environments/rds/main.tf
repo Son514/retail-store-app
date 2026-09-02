@@ -31,9 +31,10 @@ data "terraform_remote_state" "eks" {
 module "rds" {
   source = "../../modules/rds"
 
-  vpc_id                     = data.terraform_remote_state.network.outputs.vpc_id
-  private_subnet_ids         = data.terraform_remote_state.network.outputs.private_subnet_ids
-  eks_node_security_group_id = data.terraform_remote_state.eks.outputs.cluster_security_group_id
+  vpc_id                        = data.terraform_remote_state.network.outputs.vpc_id
+  private_subnet_ids            = data.terraform_remote_state.network.outputs.private_subnet_ids
+  eks_node_security_group_id    = data.terraform_remote_state.eks.outputs.node_security_group_id
+  eks_cluster_security_group_id = data.terraform_remote_state.eks.outputs.cluster_security_group_id
 
   db_name   = var.config.db_name
   secret_id = var.config.secret_id
