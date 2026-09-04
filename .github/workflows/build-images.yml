@@ -1,0 +1,68 @@
+name: Build & Push Images
+
+# Builds the deployed service images and pushes them to Amazon ECR.
+# Triggered automatically on every push to main (and can be re-run manually).
+#
+# Image tags use the short git SHA so they are unique per commit -- required
+# because ECR repos use immutable tags and disallow overwriting.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: build-images
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ap-southeast-1
+  # Role created by terraform/environments/oidc (GitHub Actions OIDC).
+  DEPLOY_ROLE_ARN: arn:aws:iam::692797214517:role/github-actions-deploy
+
+jobs:
+  build-and-push:
+    name: Build & push ${{ matrix.project }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [catalog, ui]
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install toolchain (mise)
+        uses: jdx/mise-action@v3
+
+      - name: Enable yarn and install dependencies
+        run: |
+          corepack enable
+          yarn install
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GithubActionsSession
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag (short SHA)
+        id: tag
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push ${{ matrix.project }}
+        env:
+          IMG_URI: ${{ steps.ecr-login.outputs.registry }}/${{ matrix.project }}
+        run: |
+          yarn nx container ${{ matrix.project }} \
+            --tags "${IMG_URI}:${{ steps.tag.outputs.tag }}" \
+            --push true

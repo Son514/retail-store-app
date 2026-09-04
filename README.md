@@ -143,6 +143,39 @@ The following options are available to deploy the application using Terraform:
 | [Amazon ECS](./terraform/ecs/default/)           | Deploys the application to Amazon ECS using other AWS services for dependencies, such as RDS, DynamoDB etc.     |
 | [AWS App Runner](./terraform/apprunner/)         | Deploys the application to AWS App Runner using other AWS services for dependencies, such as RDS, DynamoDB etc. |
 
+## CI/CD
+
+A GitHub Actions pipeline builds and publishes the service images to Amazon ECR.
+
+### Build & push images
+
+[`.github/workflows/build-images.yml`](./.github/workflows/build-images.yml) runs on
+every push to `main` (and on demand via the **Run workflow** button). It builds the
+deployed services (`catalog`, `ui`) and pushes each image to its private ECR
+repository on every push:
+
+```
+692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/<service>:<short-sha>
+```
+
+- Images are tagged with the **short git SHA** so each tag is unique — required
+  because the ECR repositories use **immutable tags**.
+- Credentials come from **GitHub Actions OIDC** (no static access keys). The IAM
+  OIDC provider and `github-actions-deploy` role are provisioned by the
+  [`terraform/environments/oidc`](./terraform/environments/oidc/) stack. The role's
+  trust policy is scoped to the `Son514/retail-store-app` repository.
+- Architecture: single-arch (`amd64`) builds, matching the EKS node group.
+
+### Prerequisites
+
+1. Provision the OIDC infra so the role exists:
+   ```bash
+   cd terraform/environments/oidc
+   terraform apply
+   ```
+2. The resulting role ARN is referenced in the workflow as the `DEPLOY_ROLE_ARN`
+   (default `arn:aws:iam::692797214517:role/github-actions-deploy`).
+
 ## Security
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.

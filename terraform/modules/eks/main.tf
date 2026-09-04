@@ -158,6 +158,10 @@ resource "helm_release" "cert_manager" {
 
   depends_on = [
     aws_eks_node_group.this,
+    # Install after the AWS Load Balancer Controller so its mutating webhook
+    # (mservice.elbv2.k8s.aws) is ready; otherwise cert-manager's Service is
+    # rejected with "no endpoints available" during concurrent bring-up.
+    helm_release.aws_lb_controller,
   ]
 }
 
