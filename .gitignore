@@ -4,6 +4,7 @@
 *.tfstate*
 *.lock.hcl
 *.tfplan
+tfplan
 *.log
 .vscode
 reports
