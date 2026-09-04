@@ -52,3 +52,18 @@ output "configure_kubectl" {
   description = "Command to configure kubectl for this cluster"
   value       = "aws eks --region ${data.aws_region.current.region} update-kubeconfig --name ${aws_eks_cluster.this.name}"
 }
+
+output "amp_workspace_id" {
+  description = "ID of the AWS Managed Prometheus (AMP) workspace for metrics"
+  value       = aws_prometheus_workspace.amp.id
+}
+
+output "amp_workspace_endpoint" {
+  description = "HTTP (query) endpoint of the AMP workspace"
+  value       = aws_prometheus_workspace.amp.prometheus_endpoint
+}
+
+output "amp_remote_write_url" {
+  description = "Remote-write URL used by the ADOT collector's prometheusremotewrite exporter"
+  value       = "${aws_prometheus_workspace.amp.prometheus_endpoint}api/v1/remote_write"
+}

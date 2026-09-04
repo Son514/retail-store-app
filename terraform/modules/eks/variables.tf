@@ -72,6 +72,12 @@ variable "node_group_max_size" {
   description = "Maximum number of nodes in the managed node group"
 }
 
+variable "adot_addon_version" {
+  type        = string
+  default     = "v0.156.0-eksbuild.1"
+  description = "Version of the ADOT (Amazon EKS add-on) install. Latest version for the region is the default."
+}
+
 variable "app_namespaces" {
   type        = list(string)
   default     = ["development", "production"]

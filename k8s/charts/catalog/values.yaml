@@ -19,6 +19,12 @@ serviceAccount:
 service:
   type: ClusterIP
   port: 80
+  # Prometheus scrape annotations discovered by the ADOT collector's
+  # 'retail-apps' scrape job (k8s service/endpoints SD). catalog exposes its
+  # Prometheus metrics at /metrics (ginprometheus).
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: /metrics
 
 # ConfigMap managed by the terraform rds environment, referenced not created.
 externalConfigMap:
@@ -74,6 +80,14 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 50
   targetMemoryUtilizationPercentage: ""
+
+# OpenTelemetry tracing — export OTLP traces to the ADOT collector, which
+# forwards to AWS X-Ray. Enabled per environment via the values override.
+opentelemetry:
+  enabled: false
+  # Collector service DNS (see k8s/observability/service.yaml).
+  endpoint: http://adot-collector.aws-otel-eks:4318
+  serviceName: catalog
 
 # Rolling update strategy — maxSurge: 0 ensures old pods terminate before new
 # ones are created, preventing memory overcommit on capacity-constrained nodes.

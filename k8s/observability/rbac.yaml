@@ -1,0 +1,40 @@
+# RBAC for the ADOT collector's in-cluster service discovery and metrics
+# scraping.
+#
+# The Prometheus receiver uses the Kubernetes API for service discovery:
+#   - 'retail-apps' job (role: endpoints) needs to list/watch endpoints,
+#     services, pods and namespaces in the app namespaces.
+#   - 'kubelet' job needs to reach each node's cAdvisor endpoint, which we do
+#     through the API server proxy (/api/v1/nodes/<node>/proxy/metrics/cadvisor)
+#     over port 443 — this requires 'nodes/proxy'.
+#
+# The ADOT operator's default ClusterRole covers basic list/watch on many
+# resources, but not 'nodes/proxy'; declaring this explicitly keeps the metric
+# scraping working regardless of operator defaults.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eks-adot-collector-metrics
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints", "services", "pods", "namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eks-adot-collector-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eks-adot-collector-metrics
+subjects:
+  - kind: ServiceAccount
+    name: aws-otel-collector
+    namespace: aws-otel-eks

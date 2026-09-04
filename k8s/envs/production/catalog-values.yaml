@@ -43,3 +43,7 @@ topologySpreadConstraints:
     labelSelector:
       matchLabels:
         app.kubernetes.io/name: catalog
+
+# Traces -> ADOT collector -> AWS X-Ray.
+opentelemetry:
+  enabled: true

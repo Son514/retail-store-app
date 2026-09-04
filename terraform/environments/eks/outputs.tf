@@ -32,3 +32,18 @@ output "configure_kubectl" {
   description = "Command to configure kubectl for this cluster"
   value       = module.eks.configure_kubectl
 }
+
+output "amp_workspace_id" {
+  description = "ID of the AWS Managed Prometheus (AMP) workspace for metrics"
+  value       = module.eks.amp_workspace_id
+}
+
+output "amp_workspace_endpoint" {
+  description = "HTTP (query) endpoint of the AMP workspace"
+  value       = module.eks.amp_workspace_endpoint
+}
+
+output "amp_remote_write_url" {
+  description = "Remote-write URL used by the ADOT collector's prometheusremotewrite exporter"
+  value       = module.eks.amp_remote_write_url
+}

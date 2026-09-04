@@ -10,3 +10,7 @@ image:
 # PDB disabled in dev — single replica cannot tolerate any disruption.
 podDisruptionBudget:
   enabled: false
+
+# Traces -> ADOT collector -> AWS X-Ray.
+opentelemetry:
+  enabled: true

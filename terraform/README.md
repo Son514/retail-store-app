@@ -14,7 +14,6 @@ Modular Terraform for the retail-store-app AWS infrastructure (region `ap-southe
 | `modules/vpc/`               | Reusable VPC module.                                                      |
 | `modules/eks/`               | Reusable hand-written EKS module (IAM, cluster, SG, node group, Pod Identity). |
 | `modules/ecr/`               | Reusable ECR module (repositories + lifecycle policy).                    |
-
 State locking uses S3 native locking (`use_lockfile = true`) — **no DynamoDB**.
 Requires Terraform >= 1.10.
 
@@ -35,6 +34,8 @@ terraform init && terraform plan && terraform apply
 
 # 4. EKS: cluster + node group (takes ~10-15 min)
 #    Requires the shared.tfvars setup (see "Configuration" below)
+#    Also installs the ADOT add-on + collector IAM (AWS X-Ray, CloudWatch Logs,
+#    AMP) + the AMP workspace (see "Observability" below).
 cd ../environments/eks
 terraform init && terraform plan && terraform apply
 
@@ -89,6 +90,26 @@ Conventions:
   then re-apply eks.
 - `bootstrap/` stays outside this scheme (local state, literal backend).
 
+#### Updating your IP: `scripts/allow-my-ip.sh`
+
+When your public IP changes you get locked out of `kubectl` until the
+allow-list is updated. The helper script automates the recovery:
+
+```bash
+./scripts/allow-my-ip.sh                # detect IP + apply the cluster change
+./scripts/allow-my-ip.sh --dry-run      # just show what would change
+./scripts/allow-my-ip.sh --full-apply   # cluster change, then full terraform apply
+./scripts/allow-my-ip.sh --cidr 1.2.3.4 # override the detected IP (e.g. VPN)
+```
+
+How it stays reliable even mid-lockout: it updates
+`cluster_endpoint_public_access_cidrs` in `shared.tfvars` and applies **only**
+the cluster resource first (`terraform apply -target=module.eks.aws_eks_cluster.this`),
+which talks to the AWS EKS *service* API rather than the cluster API — so it
+works regardless of whether `kubectl` can currently reach the cluster. It then
+runs `terraform plan` (to surface any other drift), refreshes kubeconfig, and
+verifies `kubectl get nodes`.
+
 ### Changing the DB secret
 
 The catalog database credentials come from Secrets Manager
@@ -123,6 +144,31 @@ The account hosts a single environment, so resources have no dev/prod prefix.
 The EKS cluster (and VPC) are named `retail-store`, ECR repositories are named
 directly after the microservices (`ui`, `catalog`, `cart`, `checkout`, `orders`),
 and VPC subnets are `public-N` / `private-N`.
+
+## Observability — ADOT add-on, AWS X-Ray, CloudWatch Logs, and AMP
+
+The `eks` environment installs the observability pieces alongside the
+cluster:
+
+1. The **`adot` EKS add-on** (the ADOT Operator), versioned by
+   `config.adot_addon_version` (default the latest EKS build for the region).
+   The Operator watches `OpenTelemetryCollector` custom resources and deploys
+   the ADOT collector.
+2. An **IAM role `eks-adot-collector`** with the managed
+   `AWSXRayDaemonWriteAccess` and `CloudWatchAgentServerPolicy` policies plus an
+   inline `aps:RemoteWrite` grant, so the collector can write traces to X-Ray,
+   logs to CloudWatch Logs, and metrics to AMP.
+3. An **EKS Pod Identity association** binding that role to the
+   `aws-otel-collector` service account in the `aws-otel-eks` namespace.
+4. An **AWS Managed Prometheus workspace** (`retail-store`) used as the metrics
+   store. The workspace ID / query endpoint / remote-write URL are surfaced as
+   outputs (`amp_workspace_id`, `amp_workspace_endpoint`, `amp_remote_write_url`).
+
+The collector CR, RBAC, and ClusterIP service are plain manifests in
+[`k8s/observability/`](../k8s/observability/) — see `k8s/README.md →
+Observability` for the deploy steps and the cost-control config (filter +
+tail-sampling for traces, namespace filter + 7-day retention for logs, tight
+scrape scope + 30s interval + sample limits for metrics).
 
 ## Notes
 

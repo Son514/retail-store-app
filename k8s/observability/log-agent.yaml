@@ -1,0 +1,179 @@
+# ADOT per-node log collector — container stdout/stderr -> CloudWatch Logs.
+#
+# A DaemonSet (mode: daemonset) so filelog on every node tails that node's
+# container logs. Kept separate from collector.yaml (the single Deployment
+# that handles traces/metrics) so logs get per-node coverage without
+# duplicating X-Ray/AMP work.
+#
+# Pipeline: filelog (tail /var/log/pods on the local node)
+#           -> filter/log-noise (only the retail app namespaces)
+#           -> resourcedetection -> k8sattributes (local node only)
+#           -> resource/log-stream (k8s.container.name -> service.name)
+#           -> batch -> awscloudwatchlogs
+#   Ships to a single CloudWatch Logs group, retention 7 days, one stream per
+#   (service, node) via "{ServiceName}-{NodeName}". NodeName in the stream
+#   name is required: with multiple collectors (one per node) the same
+#   {ServiceName} stream would otherwise be written concurrently and race on
+#   CloudWatch sequence tokens.
+#
+# Constraints:
+#   - nodeSelector=spot keeps collectors off the fully-packed managed nodes;
+#     the filter drops everything except development/production workloads,
+#     which are all spot-pinned anyway.
+#   - runAsUser: 0 because kubelet writes /var/log/pods/*.log as root:root
+#     mode 640 and a non-root process cannot read them (filelog then silently
+#     matches nothing).
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: log-agent
+  namespace: aws-otel-eks
+spec:
+  mode: daemonset
+  serviceAccount: aws-otel-collector
+  # Spot nodes only: the app workloads are spot-pinned and the managed nodes
+  # sit at the t3.small maxPods=11 ceiling (no room for another DaemonSet pod).
+  nodeSelector:
+    karpenter.sh/capacity-type: spot
+  # kubelet writes container logs as root:root mode 640 under /var/log/pods;
+  # a non-root collector cannot read them (filelog silently matches nothing).
+  securityContext:
+    runAsUser: 0
+  env:
+    - name: KUBE_NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 64m
+      memory: 128Mi
+  # Node access so the filelog receiver can tail container logs.
+  volumeMounts:
+    - name: varlogpods
+      mountPath: /var/log/pods
+      readOnly: true
+    - name: varlibdockercontainers
+      mountPath: /var/lib/docker/containers
+      readOnly: true
+  volumes:
+    - name: varlogpods
+      hostPath:
+        path: /var/log/pods
+    - name: varlibdockercontainers
+      hostPath:
+        path: /var/lib/docker/containers
+  config:
+    extensions:
+      health_check:
+    receivers:
+      # Tail container stdout/stderr logs from this node's /var/log/pods.
+      filelog:
+        include:
+          - /var/log/pods/*/*/*.log
+        exclude:
+          # Never ingest the collectors' own logs.
+          - /var/log/pods/*adot-collector-collector*/*/*.log
+          - /var/log/pods/*log-agent-collector*/*/*.log
+        # Start at the end so we don't re-ingest all historical logs on first
+        # deploy (cost control). Change to "beginning" if you want backfill.
+        start_at: end
+        include_file_path: true
+        include_file_name: false
+        operators:
+          # Auto-detect and parse the CRI/containerd (AL2023 default) / crio /
+          # docker log format. This sets the message as the body, the stream as
+          # attributes["log.iostream"], parses the timestamp, and — because
+          # add_metadata_from_filepath defaults to true — extracts
+          # k8s.namespace.name / k8s.pod.name / k8s.container.name (and others)
+          # from the log file path into resource attributes.
+          - type: container
+            id: container-parser
+
+    processors:
+      # Drop low-value log records before they reach CloudWatch. The biggest
+      # cost driver is collecting kube-system / other-namespace logs; we only
+      # want the retail app namespaces. (These are plain stdout text logs, so
+      # there is no severity level to filter on.)
+      filter/log-noise:
+        error_mode: ignore
+        logs:
+          log_record:
+            # Drop anything that is not in the retail app namespaces (De
+            # Morgan's law: keep only dev/prod). Records without a namespace
+            # are dropped too.
+            - 'not (resource.attributes["k8s.namespace.name"] == "development" or resource.attributes["k8s.namespace.name"] == "production")'
+      # Detect AWS resource attributes (region, account, cluster, platform).
+      resourcedetection:
+        detectors: [ec2, system]
+        timeout: 5s
+        override: false
+      # Enrich with Kubernetes resource attributes (pod, deployment, namespace,
+      # container) so logs are queryable per service / env in CloudWatch.
+      k8sattributes:
+        auth_type: serviceAccount
+        passthrough: false
+        filter:
+          node_from_env_var: KUBE_NODE_NAME
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.deployment.name
+            - k8s.pod.name
+            - k8s.container.name
+            - k8s.node.name
+        pod_association:
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.ip
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.uid
+          - sources:
+              - from: connection
+      # The awscloudwatchlogs exporter only substitutes a fixed set of
+      # placeholders ({ServiceName} -> service.name, {NodeName} -> k8s.node.name,
+      # etc.), so map the per-service container name onto service.name to get
+      # a per-service log stream via the {ServiceName} part of the stream name.
+      resource/log-stream:
+        attributes:
+          - key: service.name
+            from_attribute: k8s.container.name
+            action: upsert
+      batch:
+        timeout: 2s
+        send_batch_size: 512
+
+    exporters:
+      # CloudWatch Logs exporter. One shared log group, retention 7 days, one
+      # stream per (service, node) so concurrent per-node collectors never race
+      # on the same stream's sequence token.
+      awscloudwatchlogs:
+        region: ap-southeast-1
+        log_group_name: /retail-store/application
+        log_stream_name: "{ServiceName}-{NodeName}"
+        log_retention: 7
+        sending_queue:
+          enabled: true
+          queue_size: 5000
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        logs:
+          receivers: [filelog]
+          processors:
+            - filter/log-noise
+            - resourcedetection
+            - k8sattributes
+            - resource/log-stream
+            - batch
+          exporters: [awscloudwatchlogs]

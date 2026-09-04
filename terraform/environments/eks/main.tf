@@ -32,6 +32,7 @@ module "eks" {
 
   cluster_endpoint_public_access_cidrs = var.config.cluster_endpoint_public_access_cidrs
   cluster_endpoint_private_access      = var.config.cluster_endpoint_private_access
+  adot_addon_version                   = var.config.adot_addon_version
 
   tags = merge({
     "created-by" = "retail-store-app"

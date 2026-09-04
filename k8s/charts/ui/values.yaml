@@ -20,6 +20,12 @@ config:
 service:
   type: ClusterIP
   port: 80
+  # Prometheus scrape annotations discovered by the ADOT collector's
+  # 'retail-apps' scrape job (k8s service/endpoints SD). ui exposes its
+  # Prometheus metrics at /actuator/prometheus (Spring Boot Micrometer).
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: /actuator/prometheus
 
 ingress:
   enabled: true
@@ -70,6 +76,17 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 50
   targetMemoryUtilizationPercentage: ""
+
+# OpenTelemetry tracing — export OTLP traces to the ADOT collector, which
+# forwards to AWS X-Ray. Enabled per environment via the values override.
+opentelemetry:
+  enabled: false
+  # Collector service DNS (see k8s/observability/service.yaml).
+  endpoint: http://adot-collector.aws-otel-eks:4318
+  serviceName: ui
+  # Java agent autoconfiguration: enables the OTel Java SDK via
+  # OTEL_JAVA_GLOBAL_AUTOCONFIGURE_ENABLED so traces flow with no app change.
+  javaAutoconfigure: true
 
 # Rolling update strategy — maxSurge: 0 ensures old pods terminate before new
 # ones are created, preventing memory overcommit on capacity-constrained nodes.

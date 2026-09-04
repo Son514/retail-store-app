@@ -16,6 +16,7 @@ variable "config" {
     db_name                              = optional(string, "catalogdb")
     namespaces                           = optional(list(string), ["development", "production"])
     secret_id                            = optional(string, "retail-store/catalog/db2")
+    adot_addon_version                   = optional(string, "v0.156.0-eksbuild.1")
   })
 
   validation {

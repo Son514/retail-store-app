@@ -1,0 +1,270 @@
+# ADOT OpenTelemetry Collector — traces → AWS X-Ray, metrics → AWS Managed
+#                          Prometheus (AMP). Container logs → CloudWatch Logs
+#                          are handled by the per-node DaemonSet in
+#                          log-agent.yaml.
+#
+# Managed by the ADOT Operator (installed by the "adot" EKS add-on, see
+# terraform/modules/eks/main.tf). This OpenTelemetryCollector CR makes the
+# operator deploy the collector and expose it via the ClusterIP service in
+# service.yaml (adot-collector.aws-otel-eks:4318).
+#
+# Two pipelines:
+#   traces: filter (drop probes/health checks) -> memory_limiter -> groupbytrace
+#           -> tail_sampling (100% errors, 100% slow >1s, 5% happy-path)
+#           -> k8sattributes -> batch -> awsxray
+#     Only "interesting" traces reach X-Ray, avoiding thousands of /health
+#     traces per hour and keeping happy-path volume low. Tune sampling % as
+#     needed for cost.
+#   metrics: prometheus receiver (scrape app + node/container /metrics)
+#            -> batch/metrics -> prometheusremotewrite
+#     Sends Prometheus-format metrics to the AMP workspace using the
+#     sigv4auth extension (Pod Identity role). Cost is bounded by scoping the
+#     scrape targets and dropping high-cardinality labels in the pipeline.
+#
+# Single Deployment (not a DaemonSet): traces and metrics must be handled
+# exactly once to avoid duplicate sampling and duplicate AMP ingestion. The
+# matching per-service adot-collector ClusterIP Service in service.yaml is
+# what the apps point OTEL_EXPORTER_OTLP_ENDPOINT at.
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: adot-collector
+  namespace: aws-otel-eks
+spec:
+  mode: deployment
+  replicas: 1
+  serviceAccount: aws-otel-collector
+  # Node name used by the k8sattributes processor to associate only the pods
+  # running on this collector's node (avoids duplicate metadata lookups).
+  env:
+    - name: KUBE_NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      protocol: TCP
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 128m
+      memory: 128Mi
+  config:
+    extensions:
+      # Signs requests to AWS services (here AMP) with AWS SigV4 using the
+      # collector's Pod Identity credentials. Must also be listed under
+      # service.extensions and referenced by the exporter via
+      # auth.authenticator: sigv4auth.
+      sigv4auth:
+        region: ap-southeast-1
+        service: aps
+      health_check:
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+      # Scrape Prometheus-format /metrics endpoints. Two scrape jobs:
+      #   retail-apps  - the catalog (Go/ginprometheus) and ui (Java/Micrometer)
+      #                  services, discovered via service ("endpoints") SD and
+      #                  filtered by the prometheus.io/* annotations we add to
+      #                  their Services. catalog -> /metrics, ui -> /actuator/prometheus.
+      #   kubelet      - node + container CPU/memory/network metrics from the
+      #                  kubelet cAdvisor endpoint (:10250/metrics/cadvisor).
+      # Targets are scoped tight and high-cardinality labels dropped to keep
+      # AMP ingestion (billed per sample + storage) low.
+      prometheus:
+        config:
+          global:
+            scrape_interval: 30s
+            scrape_timeout: 10s
+
+          scrape_configs:
+            # --- app services -------------------------------------------------
+            - job_name: retail-apps
+              sample_limit: 20000
+              kubernetes_sd_configs:
+                - role: endpoints
+              metrics_path: /metrics
+              relabel_configs:
+                # Keep only catalog/ui services in the app namespaces.
+                - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+                  action: keep
+                  regex: catalog|ui
+                - source_labels: [__meta_kubernetes_namespace]
+                  action: keep
+                  regex: development|production
+                # Honor the prometheus.io/scrape + path annotations on the Service.
+                - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+                  action: keep
+                  regex: "true"
+                - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+                  action: replace
+                  target_label: __metrics_path__
+                  regex: (.+)
+                  replacement: "$$1"
+                # Rebrand the target as the service ("ui" -> "ui", "catalog" -> "catalog").
+                - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+                  target_label: service
+                  action: replace
+                # Keep the namespace for querying per environment.
+                - source_labels: [__meta_kubernetes_namespace]
+                  target_label: namespace
+                  action: replace
+              tls_config:
+                ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                insecure_skip_verify: true
+              bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+            # --- node + container (kubelet cAdvisor) --------------------------
+            - job_name: kubelet
+              sample_limit: 20000
+              scheme: https
+              metrics_path: /metrics/cadvisor
+              kubernetes_sd_configs:
+                - role: node
+              relabel_configs:
+                - action: labelmap
+                  regex: __meta_kubernetes_node_label_(.+)
+                - target_label: __address__
+                  replacement: kubernetes.default.svc:443
+                  action: replace
+                - source_labels: [__meta_kubernetes_node_name]
+                  regex: (.+)
+                  target_label: __metrics_path__
+                  replacement: /api/v1/nodes/$${1}/proxy/metrics/cadvisor
+                  action: replace
+              tls_config:
+                ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                insecure_skip_verify: true
+              bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+    processors:
+      # -------------------- traces processors --------------------
+      # Drop Kubernetes liveness/readiness probe and ALB health-check noise
+      # before it costs anything. The retail services expose /health (Go
+      # catalog) and /actuator/health/* (Java UI), and ALB sends
+      # ELB-HealthChecker and kube-probe user agents every ~10s.
+      filter/drop-noise:
+        error_mode: ignore
+        traces:
+          span:
+            - 'IsMatch(attributes["url.path"], "(/health|/ready|/actuator/health.*)")'
+            - 'IsMatch(attributes["http.route"], "(/health|/ready|/actuator/health.*)")'
+            - 'IsMatch(attributes["user_agent.original"], "^(kube-probe/.*|ELB-HealthChecker/.*)")'
+            - 'IsMatch(attributes["http.user_agent"], "^(kube-probe/.*|ELB-HealthChecker/.*)")'
+      # Bound memory before tail-sampling buffers traces.
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+        spike_limit_mib: 100
+        limit_percentage: 0
+        spike_limit_percentage: 0
+      # Collect all spans of a trace so tail_sampling can decide per trace.
+      groupbytrace:
+        wait_duration: 10s
+        num_traces: 20000
+      tail_sampling:
+        decision_wait: 15s
+        num_traces: 20000
+        expected_new_traces_per_sec: 200
+        policies:
+          - name: keep-errors
+            type: status_code
+            status_code:
+              status_codes: [ERROR]
+          - name: keep-slow
+            type: latency
+            latency:
+              threshold_ms: 1000
+          - name: sample-happy-path
+            type: probabilistic
+            probabilistic:
+              sampling_percentage: 5
+
+      # -------------------- metrics processors --------------------
+      # Batch scraped metric points before remote-writing to AMP. A longer
+      # window than the shared 2s batch smooths out sparse scrapes and reduces
+      # the number of remote-write requests.
+      batch/metrics:
+        timeout: 15s
+        send_batch_size: 10000
+
+      # -------------------- traces processors --------------------
+      # Enrich with Kubernetes resource attributes (pod, deployment, namespace,
+      # container) so traces are queryable per service / env in X-Ray.
+      k8sattributes:
+        auth_type: serviceAccount
+        passthrough: false
+        filter:
+          node_from_env_var: KUBE_NODE_NAME
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.deployment.name
+            - k8s.pod.name
+            - k8s.container.name
+            - k8s.node.name
+        pod_association:
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.ip
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.uid
+          - sources:
+              - from: connection
+      batch:
+        timeout: 2s
+        send_batch_size: 512
+
+    exporters:
+      awsxray:
+        region: ap-southeast-1
+        indexed_attributes:
+          - k8s.namespace.name
+          - k8s.pod.name
+          - k8s.deployment.name
+          - http.method
+          - http.status_code
+      # Metrics remote-write exporter. Sends scraped Prometheus metrics to the
+      # AMP workspace, signing each request with SigV4 via the sigv4auth
+      # extension (collector Pod Identity role with aps:RemoteWrite).
+      # NOTE: populated from the Terraform output amp_remote_write_url
+      # (see terraform/README.md and terraform/environments/eks/outputs.tf).
+      prometheusremotewrite:
+        endpoint: "https://aps-workspaces.ap-southeast-1.amazonaws.com/workspaces/ws-544cd4c1-683e-40f9-9e7e-1c8dc9ee81bf/api/v1/remote_write"
+        auth:
+          authenticator: sigv4auth
+        resource_to_telemetry_conversion:
+          enabled: true
+        timeout: 30s
+
+    service:
+      extensions: [sigv4auth, health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors:
+            - filter/drop-noise
+            - memory_limiter
+            - groupbytrace
+            - tail_sampling
+            - k8sattributes
+            - batch
+          exporters: [awsxray]
+        metrics:
+          receivers: [prometheus]
+          processors:
+            - batch/metrics
+          exporters: [prometheusremotewrite]

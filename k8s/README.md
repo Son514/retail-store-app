@@ -15,6 +15,7 @@ each).
 | --------------------------- | ------------------------------------------------------------------------------ |
 | `charts/catalog/`           | Catalog API chart (Deployment, Service, ServiceAccount, SecretProviderClass).  |
 | `charts/ui/`                | UI chart (Deployment, Service, ConfigMap, ALB Ingress).                        |
+| `observability/`            | ADOT Collector + ClusterIP service + RBAC: traces → AWS X-Ray, logs → CloudWatch Logs, metrics → AWS Managed Prometheus (see the Observability section). |
 | `envs/development/`         | Values overrides for the development namespace.                                |
 | `envs/production/`          | Values overrides for the production namespace.                                 |
 | `namespace*.yaml`           | **Reference only** — namespaces are created by Terraform.                      |
@@ -213,6 +214,249 @@ IAM roles) is unaffected.
 
 - Add charts for cart, orders, and checkout following the same pattern once
   their persistence/messaging backends are decided.
+
+## Observability — Distributed Tracing (AWS X-Ray), Logs (CloudWatch), Metrics (AMP)
+
+Services export OpenTelemetry (OTLP) traces and container logs, plus
+Prometheus metrics the collector scrapes. Two collectors are used:
+**`adot-collector`** is a single `Deployment` that forwards **traces to AWS
+X-Ray** and **metrics to AWS Managed Prometheus (AMP)** exactly once (a
+single central point keeps tail-sampling decisions accurate and avoids
+duplicate AMP ingestion). **`log-agent`** is a per-node `DaemonSet` that
+ships each node's container **logs to CloudWatch Logs**. Both are ADOT
+collectors installed by the ADOT EKS add-on (managed by Terraform) and
+deployed via `OpenTelemetryCollector` custom resources.
+
+```
+[app pod: catalog] ─OTLP http:4318─┐
+[app pod: ui]     ─OTLP http:4318─┼─▶ adot-collector.aws-otel-eks:4318 (ClusterIP)
+                                  │         │
+                                  ▼         ▼
+               adot-collector (Deployment, x1)    log-agent (DaemonSet, per spot node)
+               traces: filter → memory_limiter    logs: filelog (tail /var/log/pods)
+                       → groupbytrace                  → filter/log-noise
+                       → tail_sampling                 → resourcedetection
+                       → k8sattributes → batch         → k8sattributes
+               metrics: prometheus (scrape app         → resource/log-stream
+                       + kubelet cAdvisor → batch      → batch
+                       /metrics)            │
+                                  │         │  (Pod Identity: eks-adot-collector /
+                                  │         │   AWSXRayDaemonWriteAccess
+                                  │         │   + CloudWatchAgentServerPolicy
+                                  │         │   + aps:RemoteWrite)
+              traces──────▶│         │
+              metrics─────▶│         │
+              logs────────▶│         ▼
+                                  │   AWS X-Ray  /  AMP  /  CloudWatch Logs
+```
+
+### Components
+
+| Path                                                                        | Purpose                                                           |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `terraform/modules/eks/main.tf`                                             | ADOT add-on, collector IAM role (`AWSXRayDaemonWriteAccess` + `CloudWatchAgentServerPolicy` + inline `aps:RemoteWrite`), `aws_prometheus_workspace` and the EKS Pod Identity association for `aws-otel-collector` / `aws-otel-eks`. |
+| `k8s/observability/namespace.yaml`                                          | `aws-otel-eks` namespace.                                         |
+| `k8s/observability/serviceaccount.yaml`                                     | `aws-otel-collector` service account (role attached via Pod Identity, no annotation needed). |
+| `k8s/observability/rbac.yaml`                                               | ClusterRole/Binding for the collector's K8s service discovery (endpoints/services/pods/namespaces/nodes) and `nodes/proxy` (kubelet cAdvisor). |
+| `k8s/observability/collector.yaml`                                          | `OpenTelemetryCollector` CR (`adot-collector`) — single Deployment with the cost-control traces pipeline and the metrics→AMP pipeline. |
+| `k8s/observability/log-agent.yaml`                                          | `OpenTelemetryCollector` CR (`log-agent`) — per-node DaemonSet logs→CloudWatch pipeline (spot nodes only).                 |
+| `k8s/observability/service.yaml`                                            | ClusterIP `adot-collector` exposing 4317 (gRPC) / 4318 (HTTP).     |
+
+Each app chart (`k8s/charts/{catalog,ui}`) ships an `opentelemetry` value
+block; when `opentelemetry.enabled: true` the deployment template injects the
+standard OTLP env vars (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`,
+etc.). The Java `ui` service additionally sets
+`OTEL_JAVA_GLOBAL_AUTOCONFIGURE_ENABLED=true`. Both environments enable it in
+`k8s/envs/*/…-values.yaml`. Each chart's Service also ships the
+`prometheus.io/scrape` + `prometheus.io/path` annotations used for metrics
+service discovery.
+
+### Cost control (why tracing won't break the bank)
+
+X-Ray bills per trace recorded/retrieved and by segment storage. Without
+controls, the busiest source of noise is **Kubernetes health/probe traffic**
+(`/health`, `/actuator/health/*`) fired every ~10s per pod, plus ALB
+`ELB-HealthChecker` probes. The collector pipeline drops this and samples the
+rest:
+
+```
+filter/drop-noise   drop /health, /ready, /actuator/health/* and kube-probe/ELB user agents
+memory_limiter      bound memory before tail-sampling buffers traces
+groupbytrace        gather all spans of a trace for a per-trace decision
+tail_sampling       keep 100% ERROR traces + 100% slow (>1s) + 5% happy-path
+k8sattributes       enrich with pod/deployment/namespace
+batch               efficient batching to X-Ray
+```
+
+Tune the numbers in `k8s/observability/collector.yaml` (the
+`tail_sampling` → `sample-happy-path` `sampling_percentage`, and
+`keep-slow` → `threshold_ms`) to match your cost appetite.
+
+> **Note on tail sampling placement:** tail sampling needs all spans of a
+> trace in one collector to decide accurately. Traces are therefore handled by
+> the single central `adot-collector` Deployment, not the DaemonSet — the two
+> kinds of workloads coexist, and the logs-only DaemonSet stays per-node.
+
+### Logs — container logs to CloudWatch Logs
+
+A **per-node DaemonSet** (`log-agent`) tails each node's `/var/log/pods` and
+ships the app services' stdout/stderr to a single **CloudWatch Logs group**
+`/retail-store/application`, with **one log stream per (service, node)**
+(`catalog-<node>`, `ui-<node>`) and a **7-day retention**
+(`log_retention: 7`).
+
+```
+[log-agent DaemonSet pod on each node]
+filelog (tail /var/log/pods/*/*/*.log on the local node)
+  → filter/log-noise     drop anything not in the development|production namespaces
+  → resourcedetection    add region / account / cluster / platform
+  → k8sattributes        add pod / deployment / node / container
+  → resource/log-stream  map container name → service.name (drives the stream)
+  → batch
+  → awscloudwatchlogs    group /retail-store/application, stream {ServiceName}-{NodeName}
+```
+
+Notes:
+
+- **Why a DaemonSet and not the central collector:** a Deployment collector
+  only sees the logs of pods scheduled to its own node. To tail *all* app pods
+  (catalog, ui, checkout, …) whichever node they land on, one filelog receiver
+  per node is needed — hence one collector pod per node.
+- The DaemonSet is scheduled with `nodeSelector: karpenter.sh/capacity-type:
+  spot`. The app namespaces are spot-pinned, and the managed nodes sit at the
+  t3.small `maxPods` ceiling, so nothing needs logs on the on-demand nodes.
+- **Root-only files:** kubelet writes each container's log under
+  `/var/log/pods` as `root:root` mode 640, so `log-agent` runs with
+  `runAsUser: 0` and mounts `/var/log/pods` (and `/var/lib/docker/containers`)
+  read-only. Without this, filelog silently matches nothing.
+- The stream name embeds the node name (`{NodeName}` → `k8s.node.name`)
+  because the exporter only substitutes a fixed set of placeholders *and*
+  multiple per-node collectors writing the same `{ServiceName}` stream would
+  race on CloudWatch sequence tokens.
+- The `filelog` receiver uses the `container` parser operator, which
+  auto-detects the Docker / CRI-O / containerd format (EKS AL2023 uses
+  containerd) and extracts `k8s.namespace.name`, `k8s.pod.name`,
+  `k8s.container.name`, etc. from the log file path.
+- `start_at: end` means historical logs are **not** back-filled on first
+  deploy (change to `beginning` to backfill). Each collector's own logs are
+  excluded (see the `exclude` globs in `k8s/observability/log-agent.yaml`).
+- Cost control: only the `development` and `production` namespaces are kept,
+  so `kube-system` / platform noise never reaches CloudWatch. Adjust the
+  include/exclude patterns and filters in
+  `k8s/observability/log-agent.yaml` for a wider or narrower scope.
+- CloudWatch Logs bills per GB ingested and by storage; the 7-day retention
+  bounds storage cost. To reduce ingestion further, tighten the
+  `filelog` filters.
+
+### Metrics — Prometheus to AWS Managed Prometheus (AMP)
+
+The collector's `prometheus` receiver scrapes Prometheus `/metrics` endpoints
+and the `prometheusremotewrite` exporter uploads them to the **AMP workspace**
+created by Terraform (`aws_prometheus_workspace.amp` in the `eks` module),
+signing each request with SigV4 via the `sigv4auth` extension (the collector's
+Pod Identity role, granted `aps:RemoteWrite`).
+
+```
+scrape:  catalog /metrics            (Go / ginprometheus)
+         ui      /actuator/prometheus (Spring Boot / Micrometer)
+         kubelet :10250/metrics/cadvisor (via API server proxy) → node + container
+  → prometheus receiver (kubernetes_sd_configs: endpoints + node)
+  → batch/metrics
+  → prometheusremotewrite → AMP workspace (150d retention)
+```
+
+- **App metrics** are discovered via Kubernetes service discovery using the
+  `prometheus.io/scrape` / `prometheus.io/path` annotations on the `catalog`
+  and `ui` Services (see chart `service.annotations`).
+- **Node/container metrics** come from kubelet's cAdvisor endpoint, reached
+  through the API server proxy (`/api/v1/nodes/<node>/proxy/metrics/cadvisor`).
+  The collector needs the RBAC in `k8s/observability/rbac.yaml`
+  (`list/watch` on endpoints/services/pods/namespaces/nodes plus `nodes/proxy`).
+- **Cost control (AMP bills per ingested sample + storage):** targets are
+  scoped tight (only `catalog`/`ui` in `development`/`production`, plus the
+  nodes), `scrape_interval` is `30s` (not 15s), and `sample_limit` caps each
+  target. The workspace `data_retention_days` is `150` (the free-tier default);
+  lower it if you want cheaper storage. See `k8s/observability/collector.yaml`
+  to tune.
+
+#### Wire up the remote-write endpoint
+
+The remote-write URL in `k8s/observability/collector.yaml` points at the AMP
+workspace created by Terraform. After (re)creating the workspace, read the URL
+from the `eks` environment output and update `prometheusremotewrite.endpoint`:
+
+```bash
+cd terraform/environments/eks
+terraform output amp_remote_write_url
+# e.g. https://aps-workspaces.ap-southeast-1.amazonaws.com/workspaces/ws-xxxx/api/v1/remote_write
+```
+
+> Note: the app services keep `OTEL_METRICS_EXPORTER: none` — the collector
+> **scrapes** their native Prometheus endpoints, so the app SDKs don't need to
+> emit OTLP metrics. To query the data directly (before any Grafana), use the
+> AMP workspace query editor or:
+> ```bash
+> awscurl --service="aps" --region ap-southeast-1 \
+>   "https://<workspace-endpoint>/api/v1/query?query=up"
+> ```
+
+### Deploy
+
+1. **Install the ADOT add-on + collector IAM** (one time, via Terraform):
+   ```bash
+   cd terraform/environments/eks
+   terraform apply
+   ```
+2. **Apply the collector manifests**:
+   ```bash
+   kubectl apply -f k8s/observability/
+   kubectl -n aws-otel-eks rollout status deploy/adot-collector-collector
+   kubectl -n aws-otel-eks rollout status daemonset/log-agent-collector
+   kubectl -n aws-otel-eks get pods -o wide
+   ```
+3. **Deploy/upgrade the apps** with tracing enabled (already on by default in
+   the env overrides):
+   ```bash
+   helm upgrade -i catalog k8s/charts/catalog -n development -f k8s/envs/development/catalog-values.yaml
+   helm upgrade -i ui k8s/charts/ui -n development -f k8s/envs/development/ui-values.yaml
+   # repeat for production
+   ```
+4. Generate traffic (hit the UI ALB), then open the **AWS X-Ray console →
+   Traces** (or **CloudWatch → Application Signals**) to see the service map,
+   and **CloudWatch → Log groups → `/retail-store/application`** to see the
+   `catalog` / `ui` log streams. For metrics, open the **AMP workspace** in the
+   console and run a query (e.g. `up`, `container_cpu_usage_seconds_total`).
+
+### Troubleshooting
+
+- **No traces in X-Ray / no metrics in AMP:** verify the central collector can
+  reach X-Ray/AMP — check its Pod Identity role association
+  (`AWSXRayDaemonWriteAccess`, `aps:RemoteWrite`):
+  ```bash
+  kubectl -n aws-otel-eks logs deploy/adot-collector-collector
+  ```
+- **No logs in CloudWatch:** confirm the `log-agent` DaemonSet is running on
+  the nodes hosting app pods and can read `/var/log/pods` (needs
+  `runAsUser: 0` — see above) and write to CloudWatch (needs
+  `CloudWatchAgentServerPolicy`). The log group is created automatically on
+  first write:
+  ```bash
+  kubectl -n aws-otel-eks logs daemonset/log-agent-collector
+  aws logs describe-log-groups --log-group-name-prefix /retail-store/application
+  ```
+- **No metrics in AMP:** confirm the remote-write endpoint is the real
+  workspace URL (not a placeholder), the collector role has `aps:RemoteWrite`,
+  and the `k8s/observability/rbac.yaml` role is bound. Then query AMP:
+  ```bash
+  kubectl -n aws-otel-eks logs deploy/adot-collector-collector
+  aws amp query-workspace --workspace-id <id> --query 'up'
+  ```
+- **Connection refused from apps:** confirm the app pods can resolve
+  `adot-collector.aws-otel-eks` (the ClusterIP service targets the central
+  collector Deployment pod; use the FQDN from cross-namespace pods).
+- **Wanted more/fewer traces, logs or metrics:** adjust the sampling /
+  size filter policies in `k8s/observability/collector.yaml` and the log
+  filters in `k8s/observability/log-agent.yaml`, then re-apply.
 
 ## Karpenter Spot Instances
 

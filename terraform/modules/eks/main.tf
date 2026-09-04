@@ -141,6 +141,100 @@ resource "aws_eks_addon" "secrets_store_csi_provider" {
   resolve_conflicts_on_create = "OVERWRITE"
 }
 
+# Required by the ADOT add-on below: the OpenTelemetry Operator it installs
+# needs cert-manager for its validating/mutating webhooks and serving certs.
+resource "helm_release" "cert_manager" {
+  name             = "cert-manager"
+  repository       = "https://charts.jetstack.io"
+  chart            = "cert-manager"
+  version          = "v1.21.1"
+  namespace        = "cert-manager"
+  create_namespace = true
+
+  set {
+    name  = "crds.enabled"
+    value = "true"
+  }
+
+  depends_on = [
+    aws_eks_node_group.this,
+  ]
+}
+
+# ADOT (AWS Distro for OpenTelemetry) operator. Must be installed after
+# cert-manager, otherwise add-on creation fails with K8sResourceNotFound.
+resource "aws_eks_addon" "adot" {
+  cluster_name                = aws_eks_cluster.this.name
+  addon_name                  = "adot"
+  addon_version               = var.adot_addon_version
+  resolve_conflicts_on_create = "OVERWRITE"
+
+  depends_on = [
+    helm_release.cert_manager,
+  ]
+}
+
+# ------------------------------------------------------------------
+# Observability — ADOT collector IAM (writes traces to AWS X-Ray and
+# logs to CloudWatch Logs)
+# ------------------------------------------------------------------
+
+resource "aws_iam_role" "adot_collector" {
+  name = "eks-adot-collector"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy_attachment" "adot_collector" {
+  role       = aws_iam_role.adot_collector.name
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
+resource "aws_iam_role_policy_attachment" "adot_collector_logs" {
+  role       = aws_iam_role.adot_collector.name
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
+# AMP (Amazon Managed Prometheus) workspace the collector remotely-writes
+# metrics to, and the aps:RemoteWrite grant on the collector's Pod Identity
+# role (the sigv4auth extension signs the request with this role).
+# Note: AMP data retention is fixed by AWS at 150 days (not configurable).
+resource "aws_prometheus_workspace" "amp" {
+  alias = "retail-store"
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy" "adot_collector_amp" {
+  name = "amp-remote-write"
+  role = aws_iam_role.adot_collector.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["aps:RemoteWrite"]
+      Resource = aws_prometheus_workspace.amp.arn
+    }]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "adot_collector" {
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = "aws-otel-eks"
+  service_account = "aws-otel-collector"
+  role_arn        = aws_iam_role.adot_collector.arn
+}
+
 # ------------------------------------------------------------------
 # Pod Identity — IAM role for test pod S3 access
 # ------------------------------------------------------------------

@@ -1,0 +1,28 @@
+# ClusterIP Service exposing the ADOT collector to app pods.
+# App pods (in any namespace) export OTLP traces to:
+#   http://adot-collector.aws-otel-eks:4318  (HTTP/protobuf)
+#   adot-collector.aws-otel-eks:4317         (gRPC)
+apiVersion: v1
+kind: Service
+metadata:
+  name: adot-collector
+  namespace: aws-otel-eks
+  labels:
+    app.kubernetes.io/owner: retail-store-sample
+    app.kubernetes.io/part-of: observability
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: opentelemetry-collector
+    app.kubernetes.io/instance: aws-otel-eks.adot-collector
+    app.kubernetes.io/managed-by: opentelemetry-operator
+    app.kubernetes.io/part-of: opentelemetry
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP

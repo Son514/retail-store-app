@@ -19,7 +19,7 @@ config = {
   # REQUIRED — CIDRs allowed to reach the EKS API endpoint.
   # Set this to your current public IP (https://checkip.amazonaws.com).
   # ------------------------------------------------------------------
-  cluster_endpoint_public_access_cidrs = ["203.0.113.10/32,136.158.100.117/32"]
+  cluster_endpoint_public_access_cidrs = ["136.158.103.230/32"]
 
   # Optional overrides (defaults shown).
   region                          = "ap-southeast-1"
@@ -36,4 +36,5 @@ config = {
   db_name                         = "catalogdb"
   namespaces                      = ["development", "production"]
   secret_id                       = "retail-store/catalog/db2"
+  adot_addon_version              = "v0.156.0-eksbuild.1"
 }

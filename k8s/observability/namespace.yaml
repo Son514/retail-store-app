@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aws-otel-eks
+  labels:
+    app.kubernetes.io/owner: retail-store-sample
+    app.kubernetes.io/part-of: observability
