@@ -63,6 +63,5 @@ jobs:
         env:
           IMG_URI: ${{ steps.ecr-login.outputs.registry }}/${{ matrix.project }}
         run: |
-          yarn nx container ${{ matrix.project }} \
-            --tags "${IMG_URI}:${{ steps.tag.outputs.tag }}" \
-            --push true
+          docker build -t "${IMG_URI}:${{ steps.tag.outputs.tag }}" src/${{ matrix.project }}
+          docker push "${IMG_URI}:${{ steps.tag.outputs.tag }}"
