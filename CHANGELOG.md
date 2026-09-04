@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.7.0](https://github.com/Son514/retail-store-app/compare/v1.6.2...v1.7.0) (2026-09-04)
+
+
+### Features
+
+* add ingress with AWS Load Balancer Controller ([d51607f](https://github.com/Son514/retail-store-app/commit/d51607f4ddb238448fb57cc10c9ea36ad5f24cfc))
+* **k8s:** autoscaling (HPA) and AZ topology spread for ui and catalog ([754897e](https://github.com/Son514/retail-store-app/commit/754897e0962641bffd08a7fc0820aad5e0d3b775))
+* **k8s:** purpose-built Helm charts for ui and catalog ([750a760](https://github.com/Son514/retail-store-app/commit/750a760053861f8d367efce05e7a925fff172307))
+* Karpenter spot nodes, PDBs, and Helm chart hardening ([51bf011](https://github.com/Son514/retail-store-app/commit/51bf011fb15c8191a2501469b5a3b555d939b8d2))
+* observability (ADOT collector, X-Ray, AMP, CloudWatch logs) + IP helper script ([94cb6de](https://github.com/Son514/retail-store-app/commit/94cb6de08a8286c230cc428b0bc666fcf807e989))
+* **terraform:** Karpenter spot-interruption queue, metrics-server, and RDS security-group fix ([2aaa779](https://github.com/Son514/retail-store-app/commit/2aaa779a232aaa172605811848c30c18aea94e62))
+* **ui:** bump to v2 with updated homepage title ([35c6c81](https://github.com/Son514/retail-store-app/commit/35c6c81a4d468e8a3db688f643adca735647d564))
+
 ## [1.6.2](https://github.com/aws-containers/retail-store-sample-app/compare/v1.6.1...v1.6.2) (2026-07-28)
 
 
