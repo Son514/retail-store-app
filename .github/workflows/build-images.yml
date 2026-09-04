@@ -1,14 +1,17 @@
-name: Build & Push Images
+name: Build & Push & Deploy
 
-# Builds the deployed service images and pushes them to Amazon ECR.
-# Triggered automatically on every push to main (and can be re-run manually).
+# Builds the deployed service images, pushes them to Amazon ECR, and
+# deploys them to EKS via Helm.
+#
+# - push to main → deploys to the production namespace
+# - push to dev  → deploys to the development namespace
 #
 # Image tags use the short git SHA so they are unique per commit -- required
 # because ECR repos use immutable tags and disallow overwriting.
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
@@ -65,3 +68,37 @@ jobs:
         run: |
           docker build -t "${IMG_URI}:${{ steps.tag.outputs.tag }}" src/${{ matrix.project }}
           docker push "${IMG_URI}:${{ steps.tag.outputs.tag }}"
+
+  deploy:
+    name: Deploy ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [catalog, ui]
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install toolchain (mise)
+        uses: jdx/mise-action@v3
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GithubActionsSession
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name retail-store --region ${{ env.AWS_REGION }}
+
+      - name: Helm upgrade ${{ matrix.service }}
+        run: |
+          NS=${{ (github.ref == 'refs/heads/main') && 'production' || 'development' }}
+          helm upgrade -i ${{ matrix.service }} \
+            k8s/charts/${{ matrix.service }} \
+            -n "$NS" \
+            -f k8s/envs/$NS/${{ matrix.service }}-values.yaml \
+            --set image.tag="${GITHUB_SHA::7}"

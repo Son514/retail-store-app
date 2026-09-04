@@ -100,10 +100,40 @@ data "aws_iam_policy_document" "ecr_push" {
       "arn:${data.aws_partition.current.partition}:ecr:${var.config.region}:${data.aws_caller_identity.current.account_id}:repository/${repo}"
     ]
   }
+
+  statement {
+    sid    = "DescribeEksCluster"
+    effect = "Allow"
+    actions = [
+      "eks:DescribeCluster",
+      "eks:ListClusters",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "ecr_push" {
   name   = "ecr-push"
   role   = aws_iam_role.github_actions_deploy.id
   policy = data.aws_iam_policy_document.ecr_push.json
+}
+
+# ------------------------------------------------------------------
+# EKS access — lets the deploy role run helm against the cluster.
+# ------------------------------------------------------------------
+
+resource "aws_eks_access_entry" "github_actions_deploy" {
+  cluster_name  = var.config.cluster_name
+  principal_arn = aws_iam_role.github_actions_deploy.arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "github_actions_deploy" {
+  cluster_name  = var.config.cluster_name
+  principal_arn = aws_iam_role.github_actions_deploy.arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
 }
