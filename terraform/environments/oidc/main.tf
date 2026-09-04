@@ -7,9 +7,13 @@
 # ------------------------------------------------------------------
 
 locals {
-  # Repository holding the actions using this role, in the
-  # "<owner>/<repo>" format used by GitHub's OIDC subject claim.
-  github_repo = "Son514/retail-store-app"
+  # Immutable OIDC subject prefix for this repository. Because this repo was
+  # created after GitHub's July 15, 2026 cutoff, GitHub issues OIDC tokens with
+  # a stable sub claim that embeds the numeric owner and repository IDs
+  # (e.g. repo:Son514@173872139/retail-store-app@1329220923:...). The numeric
+  # IDs come from GitHub's REST API / OIDC subject-customization endpoint
+  # (sub_claim_prefix = "repo:Son514@173872139/retail-store-app@1329220923").
+  github_repo = "Son514@173872139/retail-store-app@1329220923"
 
   # Repositories the role may push images to (private ECR, ap-southeast-1).
   ecr_repos = ["catalog", "ui"]
