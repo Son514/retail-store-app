@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ui-production
+  namespace: argocd
+  labels:
+    app.kubernetes.io/owner: retail-store-sample
+    app.kubernetes.io/component: application
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Son514/retail-store-app.git
+    targetRevision: main
+    path: k8s/charts/ui
+    helm:
+      releaseName: ui
+      valueFiles:
+        - ../../envs/production/ui-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: production
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

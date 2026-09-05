@@ -4,8 +4,22 @@ Helm charts for deploying the retail-store-app to the EKS cluster provisioned
 by [`../terraform`](../terraform/README.md). One chart per microservice, under
 `charts/`, with per-environment values under `envs/`.
 
-The app is deployed to two namespaces, `development` and `production`, both
-managed by Terraform (see the [`rds`](../terraform/environments/rds/)
+Deployments are **managed by ArgoCD** (installed by the [`eks`
+Terraform environment](../terraform/environments/eks/)). ArgoCD watches this
+repo and syncs each chart into the target cluster namespace:
+
+```
+push to main → CI builds+pushes images → CI writes the image tag into
+               k8s/envs/production/*-values.yaml and commits
+             → ArgoCD syncs catalog/ui into the production namespace
+
+push to dev  → same, but k8s/envs/development/* and the development namespace
+```
+
+The ArgoCD `Application` resources (one per service/environment) and the
+ArgoCD UI ingress live in `argocd/` and are applied by Terraform via
+`kubectl_manifest`. The app is deployed to two namespaces, `development` and
+`production`, both managed by Terraform (see the [`rds`](../terraform/environments/rds/)
 environment, which creates them and writes the `catalog-config` ConfigMap into
 each).
 
@@ -15,6 +29,7 @@ each).
 | --------------------------- | ------------------------------------------------------------------------------ |
 | `charts/catalog/`           | Catalog API chart (Deployment, Service, ServiceAccount, SecretProviderClass).  |
 | `charts/ui/`                | UI chart (Deployment, Service, ConfigMap, ALB Ingress).                        |
+| `argocd/`                   | ArgoCD `Application` manifests (catalog/ui × dev/prod) + ALB ingress for the ArgoCD UI. Applied by Terraform. |
 | `observability/`            | ADOT Collector + ClusterIP service + RBAC: traces → AWS X-Ray, logs → CloudWatch Logs, metrics → AWS Managed Prometheus (see the Observability section). |
 | `envs/development/`         | Values overrides for the development namespace.                                |
 | `envs/production/`          | Values overrides for the production namespace.                                 |
@@ -31,8 +46,9 @@ historical reference showing how these resources were applied with
 Base defaults live in each chart's `values.yaml`; environment-specific
 overrides live in `envs/<environment>/<chart>-values.yaml`:
 
-- ECR image tag (immutable tags — bump the tag to deploy a new build)
-- Replica count and resource sizing (production runs 2 replicas)
+- ECR image tag (immutable tags — bump the tag to deploy a new build; the CI
+  pipeline rewrites it to the commit's short SHA for ArgoCD to roll out)
+- Replica count and resource sizing (production runs 3 replicas)
 - UI endpoint wiring and theme (`config`)
 - ALB ingress annotations (`ui.ingress.annotations`)
 - Probes, security context
@@ -46,15 +62,19 @@ Manager secret (`retail-store/catalog/db2`).
 
 ## Prerequisites
 
-- A running EKS cluster (see [`../terraform`](../terraform/README.md) and the
-  `configure_kubectl` output of the `eks` environment).
-- `helm` 3.x installed locally.
-- `docker` and the AWS CLI installed and authenticated.
+- A running EKS cluster with ArgoCD installed (see [`../terraform`](../terraform/README.md)
+  and the `configure_kubectl` output of the `eks` environment).
+- `aws` CLI + `kubectl` configured against the cluster to inspect/verify
+  deployments. `helm` is only needed for out-of-band/fallback management —
+  ArgoCD is the source of truth.
 
 ## Build and push the images
 
-The UI and test-tools images must be pushed to ECR before deployment. The
-repositories use **immutable tags**, so each build must use a new tag.
+In normal operation the CI pipeline (`.github/workflows/build-images.yml`)
+builds and pushes the `catalog`/`ui` images on every push to `main`/`dev`. The
+commands below are the equivalent manual flow (e.g. for the `test-tools`
+image, which CI does not build). The ECR repositories use **immutable tags**,
+so each build must use a new tag.
 
 ```bash
 # 1. Authenticate docker with the ECR registry
@@ -83,33 +103,23 @@ To push a content change to the cluster:
    - `data/products.json` — product catalog entries
    - `lang/messages.properties` — UI text labels
 
-2. Build and push a new image with a bumped tag (ECR tags are immutable):
-   ```bash
-   aws ecr get-login-password --region ap-southeast-1 | \
-     docker login --username AWS --password-stdin 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com
-
-   docker build -t 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/ui:1.1 src/ui
-   docker push 692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/ui:1.1
-   ```
-
-3. Update the image tag in `k8s/envs/production/ui-values.yaml`:
-   ```yaml
-   image:
-     tag: "1.1"
-   ```
-
-4. Deploy (no chart change needed — this is a value-only update):
-   ```bash
-   helm upgrade -i ui \
-     oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/charts/ui \
-     --version 0.3.0 -n production -f k8s/envs/production/ui-values.yaml
-   ```
+2. Push the change to `main` (or `dev`). The CI pipeline
+   (`.github/workflows/build-images.yml`) builds and pushes a new image tagged
+   with the short SHA, rewrites `image.tag` in the matching
+   `k8s/envs/<env>/<service>-values.yaml`, and commits it back. ArgoCD then
+   detects the new commit and rolls the service out — no manual `helm`
+   command needed.
 
 The `maxSurge: 0` rolling update strategy terminates old pods before creating
 new ones, so the deployment completes within the existing NodePool capacity
 without provisioning additional nodes.
 
 ## Publish the charts to ECR (OCI)
+
+> **Legacy / optional:** the current ArgoCD setup installs straight from the
+> working tree of this repo (`spec.source.path` → `k8s/charts/<service>`), so
+> publishing to ECR is no longer required to deploy. Keep the section below
+> only if you want OCI-versioned chart artifacts for reproducibility.
 
 Charts are stored in ECR as OCI artifacts, one repository per chart
 (`charts/catalog`, `charts/ui`, provisioned by the
@@ -134,40 +144,56 @@ helm push ui-0.1.0.tgz oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/c
 
 ## Deploy
 
-Deploy each release into its namespace from the published chart version,
-combined with the matching environment values file. `helm upgrade -i` is
-idempotent — it installs if the release doesn't exist, upgrades if it does:
+Deploys are driven by **ArgoCD** — nothing is applied to the cluster manually.
+Each service/environment pair has an ArgoCD `Application` defined in
+[`argocd/`](argocd/):
+
+| Application | Repo revision | Chart | Values | Namespace |
+| ----------- | ------------- | ----- | ------ | --------- |
+| `catalog-production` | `main` | `k8s/charts/catalog` | `envs/production/catalog-values.yaml` | `production` |
+| `ui-production`      | `main` | `k8s/charts/ui`      | `envs/production/ui-values.yaml`      | `production` |
+| `catalog-development`| `dev`  | `k8s/charts/catalog` | `envs/development/catalog-values.yaml`| `development` |
+| `ui-development`     | `dev`  | `k8s/charts/ui`      | `envs/development/ui-values.yaml`     | `development` |
+
+To ship a change, push to the matching branch — the CI pipeline builds & pushes
+the images, records the tag in the env values, and commits it. ArgoCD
+auto-syncs (`prune: true`, `selfHeal: true`) and rolls the release out:
 
 ```bash
-# Development
-helm upgrade -i catalog \
-  oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/charts/catalog \
-  --version 0.3.0 -n development -f k8s/envs/development/catalog-values.yaml
-helm upgrade -i ui \
-  oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/charts/ui \
-  --version 0.3.0 -n development -f k8s/envs/development/ui-values.yaml
-
-# Production
-helm upgrade -i catalog \
-  oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/charts/catalog \
-  --version 0.3.0 -n production -f k8s/envs/production/catalog-values.yaml
-helm upgrade -i ui \
-  oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/charts/ui \
-  --version 0.3.0 -n production -f k8s/envs/production/ui-values.yaml
-
-kubectl wait --for=condition=available deploy/catalog deploy/ui -n development --timeout=180s
-kubectl wait --for=condition=available deploy/catalog deploy/ui -n production --timeout=180s
-kubectl get pods -A -l app.kubernetes.io/owner=retail-store-sample
+git push origin main        # → production
+git push origin dev         # → development
 ```
 
-Quick-start fallback: while iterating locally you can skip publishing and
-install straight from the working tree by substituting the local chart path,
-e.g. `helm upgrade -i catalog k8s/charts/catalog -n development -f …`.
+Out-of-band fallback (e.g. ArgoCD is down): install straight from the working
+tree with the same values file, e.g.
+`helm upgrade -i catalog k8s/charts/catalog -n production -f k8s/envs/production/catalog-values.yaml --set image.tag=<sha>`.
 
-The catalog must be installed first if you point the UI at it: set
-`RETAIL_UI_ENDPOINTS_CATALOG` in the environment's `ui-values.yaml`.
+Verification:
+
+```bash
+argocd app list -o table
+argocd app get catalog-production
+kubectl get pods -n production -l app.kubernetes.io/owner=retail-store-sample
+```
+
+The catalog must be present before the UI can reach it: the environment's
+`ui-values.yaml` points `RETAIL_UI_ENDPOINTS_CATALOG` at `http://catalog`.
 
 ## Access
+
+### ArgoCD UI
+
+The ArgoCD server is exposed on an internet-facing ALB (see
+[`argocd/ingress.yaml`](argocd/ingress.yaml)):
+
+```bash
+kubectl get ingress argocd-server -n argocd
+# open the ADDRESS (ALB DNS name) in your browser
+# username: admin
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+```
+
+### App endpoints
 
 Each namespace's UI Ingress provisions its own internet-facing ALB (created by
 the AWS Load Balancer Controller). After deploying:
@@ -187,19 +213,22 @@ The ALB takes a few minutes to become healthy after the first deployment.
 
 ## Upgrade
 
-Publish a new chart version (see above), then upgrade each release to it:
+- **Image-only change:** push to the branch. CI builds/pushes, rewrites the
+  image tag in `k8s/envs/<env>/<service>-values.yaml`, and commits; ArgoCD
+  syncs it. No chart version bump or manual command.
+- **Chart change:** commit the change to `k8s/charts/<service>` and push.
+  ArgoCD picks it up on the next sync (bump the chart `version` to make the
+  rollout visible in the UI).
 
-```bash
-helm upgrade catalog \
-  oci://692797214517.dkr.ecr.ap-southeast-1.amazonaws.com/charts/catalog \
-  --version 0.4.0 -n production -f k8s/envs/production/catalog-values.yaml
-```
-
-Value-only changes (e.g. a new image tag in the environment's values file)
-don't need a new chart version — re-run `helm upgrade` with the same chart and
-the updated values file.
+Out-of-band fallback, same as before:
+`helm upgrade catalog k8s/charts/catalog -n production -f k8s/envs/production/catalog-values.yaml`
 
 ## Cleanup
+
+To delete a release, remove (or disable) the matching ArgoCD `Application` in
+[`argocd/`](argocd/) — e.g. the `catalog-development` Application for the dev
+catalog — and let it prune. As a fallback, `helm uninstall` straight from the
+cluster:
 
 ```bash
 helm uninstall ui catalog -n development
@@ -415,7 +444,8 @@ terraform output amp_remote_write_url
    kubectl -n aws-otel-eks get pods -o wide
    ```
 3. **Deploy/upgrade the apps** with tracing enabled (already on by default in
-   the env overrides):
+   the env overrides): push `main` / `dev` and let ArgoCD sync, or use the
+   out-of-band fallback:
    ```bash
    helm upgrade -i catalog k8s/charts/catalog -n development -f k8s/envs/development/catalog-values.yaml
    helm upgrade -i ui k8s/charts/ui -n development -f k8s/envs/development/ui-values.yaml

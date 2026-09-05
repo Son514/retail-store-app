@@ -14,6 +14,17 @@ provider "helm" {
   }
 }
 
+provider "kubectl" {
+  host                   = aws_eks_cluster.this.endpoint
+  cluster_ca_certificate = base64decode(aws_eks_cluster.this.certificate_authority[0].data)
+  load_config_file       = false
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", aws_eks_cluster.this.name]
+  }
+}
+
 # ------------------------------------------------------------------
 # IAM
 # ------------------------------------------------------------------
@@ -523,4 +534,47 @@ resource "time_sleep" "node_group_wait" {
   create_duration = "60s"
 
   depends_on = [aws_eks_node_group.this]
+}
+
+# ------------------------------------------------------------------
+# ArgoCD — GitOps engine. Installed after the load balancer controller
+# (its ALB ingress needs the controller's service to be reachable).
+# server.insecure serves plain HTTP so the internet-facing ALB ingress
+# in k8s/argocd/ingress.yaml routes to the UI without TLS gymnastics.
+# ------------------------------------------------------------------
+
+resource "helm_release" "argocd" {
+  name             = "argocd"
+  repository       = "https://argoproj.github.io/argo-helm"
+  chart            = "argo-cd"
+  version          = "10.8.0"
+  namespace        = "argocd"
+  create_namespace = true
+
+  set {
+    name  = "server.insecure"
+    value = "true"
+  }
+
+  depends_on = [
+    aws_eks_node_group.this,
+    helm_release.aws_lb_controller,
+  ]
+}
+
+# The ArgoCD Applications (one per service/environment) and the ArgoCD UI
+# ingress live as plain YAML in k8s/argocd/ so they are reviewable in git.
+# kubectl_manifest requires their CRDs, hence depends_on the helm release.
+resource "kubectl_manifest" "argocd" {
+  for_each = toset([
+    "k8s/argocd/application-catalog-production.yaml",
+    "k8s/argocd/application-ui-production.yaml",
+    "k8s/argocd/application-catalog-development.yaml",
+    "k8s/argocd/application-ui-development.yaml",
+    "k8s/argocd/ingress.yaml",
+  ])
+
+  yaml_body = file("../../../${each.value}")
+
+  depends_on = [helm_release.argocd]
 }

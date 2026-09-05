@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-development
+  namespace: argocd
+  labels:
+    app.kubernetes.io/owner: retail-store-sample
+    app.kubernetes.io/component: application
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Son514/retail-store-app.git
+    targetRevision: dev
+    path: k8s/charts/catalog
+    helm:
+      releaseName: catalog
+      valueFiles:
+        - ../../envs/development/catalog-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: development
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
