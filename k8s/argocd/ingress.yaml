@@ -10,6 +10,10 @@ metadata:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    # / on the ArgoCD server returns a 307 redirect to /applications, which
+    # fails the ALB's default 200 expectation. /healthz returns 200 (the pod
+    # uses it for its own readiness probe).
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
 spec:
   ingressClassName: alb
   rules:

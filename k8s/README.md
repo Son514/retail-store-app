@@ -184,13 +184,38 @@ The catalog must be present before the UI can reach it: the environment's
 ### ArgoCD UI
 
 The ArgoCD server is exposed on an internet-facing ALB (see
-[`argocd/ingress.yaml`](argocd/ingress.yaml)):
+[`argocd/ingress.yaml`](argocd/ingress.yaml)). Get the URL and the initial
+`admin` password:
 
 ```bash
-kubectl get ingress argocd-server -n argocd
-# open the ADDRESS (ALB DNS name) in your browser
-# username: admin
-kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+# 1. UI address (ALB DNS name)
+kubectl get ingress argocd-server -n argocd \
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+# e.g. k8s-argocd-argocdse-xxxx.elb.amazonaws.com — open it with http://
+
+# 2. Initial admin password (auto-generated on install)
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 -d && echo
+```
+
+> The initial password is stored in the `argocd-initial-admin-secret` Secret
+> and is auto-generated; it is only meant to be used once. After your first
+> login, change it (see below).
+
+Change the admin password (via the CLI — also how the rest of this README's
+`argocd` commands authenticate):
+
+```bash
+argocd login <ALB-address> --username admin --insecure
+argocd account update-password
+```
+
+If `argocd` is not installed locally:
+
+```bash
+curl -sSL -o /usr/local/bin/argocd \
+  https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+chmod +x /usr/local/bin/argocd
 ```
 
 ### App endpoints

@@ -552,7 +552,9 @@ resource "helm_release" "argocd" {
   create_namespace = true
 
   set {
-    name  = "server.insecure"
+    # argo-cd chart >= 10.x reads server.insecure from the cmd-params
+    # ConfigMap (configs.params), not the old top-level server.insecure.
+    name  = "configs.params.server\\.insecure"
     value = "true"
   }
 
