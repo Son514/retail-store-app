@@ -7,7 +7,7 @@ replicaCount: 3
 
 image:
   # Bump to the latest pushed tag before deploying (ECR tags are immutable).
-  tag: "a38ec02"
+  tag: "2f96e43"
 
 # Scale between 3 and 10 replicas based on CPU/memory utilization.
 autoscaling:
